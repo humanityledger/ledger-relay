@@ -1,0 +1,377 @@
+// components/dashboard/InstitutionalLedger.tsx
+"use client";
+
+import React, { useState, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Clock, RefreshCw, Search,
+  AlertTriangle,
+  ChevronRight
+} from 'lucide-react';
+import { ModuleHeader } from './ModuleHeader';
+import { useOmniInfrastructure } from '@/lib/api-client';
+
+import { usePublicClient, useBlockNumber } from 'wagmi';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+interface LedgerEntry {
+  id: string;
+  blockNumber: number;
+  miner: string;
+  hash: string;
+  sizeKb: number;
+  txCount: number;
+  timestamp: string;
+}
+
+interface LedgerStats {
+  totalBlocks: number;
+  avgSizeKb: number;
+  avgTxs: number;
+}
+
+// ── Utility ───────────────────────────────────────────────────────────────────
+function shortHash(h: string) {
+  if (!h || h.length < 16) return h;
+  return `${h.slice(0, 10)}...${h.slice(-6)}`;
+}
+
+function StatCard({
+  label, value, accent = false,
+}: {
+  label: string; value: string; accent?: boolean;
+}) {
+  return (
+    <div className={`bg-white dark:bg-[#111111] shadow-sm rounded-xl border ${accent ? 'border-black/10 dark:border-white/10 shadow-none' : 'border-[#E5E5E5] dark:border-white/10'} p-5 flex flex-col gap-2`}>
+      <div className="flex items-center gap-2">
+        <span className="text-[9px] font-black uppercase tracking-widest text-[#050505]/50 dark:text-[#AAAAAA]">{label}</span>
+      </div>
+      <span className={`text-xl md:text-2xl font-black font-mono leading-none ${accent ? 'text-[#050505] dark:text-white' : 'text-[#050505] dark:text-white'}`}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+// Removed StateChip
+
+// ── Main Component ────────────────────────────────────────────────────────────
+export default function InstitutionalLedger() {
+  const wagmiClient = usePublicClient();
+  const { data: wagmiBlock } = useBlockNumber({ watch: true });
+  
+  const [fallbackClient, setFallbackClient] = useState<any>(null);
+  const [fallbackBlock, setFallbackBlock] = useState<bigint | null>(null);
+
+  React.useEffect(() => {
+      let interval: NodeJS.Timeout;
+      if (!wagmiClient) {
+          import('viem').then(({ createPublicClient, http }) => {
+              const client = createPublicClient({
+                  chain: { id: 1, name: 'Ethereum', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: ['https://eth.llamarpc.com'] }, public: { http: ['https://eth.llamarpc.com'] } } } as any,
+                  transport: http()
+              });
+              setFallbackClient(client);
+              client.getBlockNumber().then(setFallbackBlock);
+              interval = setInterval(() => {
+                  client.getBlockNumber().then(setFallbackBlock).catch(() => {});
+              }, 12000);
+          });
+      }
+      return () => clearInterval(interval);
+  }, [wagmiClient]);
+
+  const publicClient = wagmiClient || fallbackClient;
+  const blockNumber = wagmiBlock || fallbackBlock;
+
+  const [rawEntries, setRawEntries] = useState<LedgerEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  React.useEffect(() => {
+    if (!publicClient || !blockNumber) return;
+    setLoading(false);
+    
+    const fetchBlock = async () => {
+        try {
+            const block = await publicClient.getBlock({
+                blockNumber: blockNumber,
+                includeTransactions: true
+            });
+            
+            const newEntry: LedgerEntry = {
+                id: block.hash,
+                blockNumber: Number(block.number),
+                miner: block.miner || '0xUnknown',
+                hash: block.hash,
+                sizeKb: parseFloat((Number(block.size) / 1024).toFixed(2)),
+                txCount: block.transactions?.length || 0,
+                timestamp: new Date(Number(block.timestamp) * 1000).toISOString(),
+            };
+            
+            setRawEntries(prev => {
+                if (prev.find(p => p.id === newEntry.id)) return prev;
+                return [newEntry, ...prev].slice(0, 30);
+            });
+        } catch (e) {
+            console.warn('[Ledger] Failed to fetch block', e);
+        }
+    };
+    fetchBlock();
+  }, [blockNumber, publicClient]);
+
+  const entries = rawEntries;
+  const isSyncing = loading;
+
+  const stats: LedgerStats | null = useMemo(() => {
+    if (entries.length === 0) return null;
+    const total = entries.length;
+    return {
+      totalBlocks: total || 0,
+      avgSizeKb: parseFloat((entries.reduce((s, e) => s + e.sizeKb, 0) / Math.max(total, 1)).toFixed(2)),
+      avgTxs: Math.floor(entries.reduce((s, e) => s + e.txCount, 0) / Math.max(total, 1)),
+    };
+  }, [entries]);
+
+  const [filter, setFilter] = useState('');
+  const [selected, setSelected] = useState<LedgerEntry | null>(null);
+
+  const filtered = useMemo(() => {
+    if (!filter) return entries;
+    const q = filter.toLowerCase();
+    return entries.filter(e =>
+      e.blockNumber.toString().includes(q) ||
+      e.hash.toLowerCase().includes(q) ||
+      e.miner.toLowerCase().includes(q)
+    );
+  }, [entries, filter]);
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  return (
+    <div className="h-full min-h-0 flex flex-col bg-[#FAF9F6] dark:bg-[#0A0A0A] overflow-hidden rounded-xl border border-[#E5E5E5] dark:border-white/10">
+
+      {/* ── Page Header ── */}
+      <div className="shrink-0 pt-4 px-2">
+        <ModuleHeader moduleId="inst-ledger" />
+      </div>
+      <div className="shrink-0 px-6 pb-4 flex items-center justify-end border-b border-[#E5E5E5] dark:border-white/10 bg-white dark:bg-[#111111] -mt-10">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-black/5 dark:border-white/5">
+            <span className="text-[9px] font-black uppercase tracking-widest text-black/40 dark:text-white/40">Telemetry Active</span>
+          </div>
+          <button
+            onClick={() => {}}
+            className="p-2 rounded border border-[#E5E5E5] dark:border-white/10 hover:bg-[#FAF9F6] dark:hover:bg-white/5 transition-colors text-[#050505]/40 dark:text-white/40 hover:text-[#050505] dark:hover:text-white"
+            title="Telemetry sync"
+          >
+            <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Stats Row ── */}
+      <div className="shrink-0 grid grid-cols-2 md:grid-cols-4 gap-4 px-6 py-4 border-b border-[#E5E5E5] dark:border-white/10">
+        <StatCard
+          label="INDEXED BLOCKS"
+          value={stats ? stats.totalBlocks.toLocaleString() : '—'}
+        />
+        <StatCard
+          label="AVG TRANSACTIONS"
+          value={stats ? `${stats.avgTxs}` : '—'}
+          accent
+        />
+        <StatCard
+          label="AVG SIZE (KB)"
+          value={stats ? `${stats.avgSizeKb} KB` : '—'}
+        />
+        <StatCard
+          label="NETWORK"
+          value="ETHEREUM L1"
+        />
+      </div>
+
+      <div className="shrink-0 px-6 py-3 border-b border-[#E5E5E5] dark:border-white/10 flex items-center gap-3 bg-[#FAF9F6] dark:bg-[#0A0A0A]">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#050505]/30 dark:text-white/30" size={12} />
+          <input
+            type="text"
+            placeholder="Filter by hash, layer..."
+            value={filter}
+            onChange={e => setFilter(e.target.value)}
+            className="w-full bg-white dark:bg-[#111111] border border-[#E5E5E5] dark:border-white/10 rounded-lg px-8 py-2 text-[10px] font-mono text-[#050505] dark:text-white outline-none focus:border-[#050505]/40 dark:focus:border-white/40 transition-colors placeholder:text-[#050505]/25 dark:placeholder:text-white/25"
+          />
+        </div>
+        <span className="text-[9px] font-black text-[#050505]/40 dark:text-white/40 uppercase tracking-widest">
+          {filtered.length} of {entries.length} items
+        </span>
+      </div>
+
+      {/* ── Table + Detail ── */}
+      <div className="flex-1 min-h-0 flex gap-0">
+
+        {/* List */}
+        <div className="flex-1 min-w-0 overflow-y-auto custom-scrollbar">
+          {/* Column Headers */}
+          <div className="sticky top-0 z-10 bg-white dark:bg-[#111111] border-b border-[#E5E5E5] dark:border-white/10 grid grid-cols-12 gap-4 px-6 py-3 shadow-[0_4px_20px_rgb(0,0,0,0.02)]">
+            {['BLOCK HEIGHT', 'MINER', 'BLOCK HASH', 'TX COUNT', 'SIZE (KB)'].map((h, i) => (
+              <span key={i} className={`text-[9px] font-black uppercase tracking-widest text-[#050505]/40 dark:text-white/40 ${
+                i === 0 ? 'col-span-2' : i === 1 ? 'col-span-2' : i === 2 ? 'col-span-4' : i === 3 ? 'col-span-2' : 'col-span-2'
+              }`}>
+                {h}
+              </span>
+            ))}
+          </div>
+
+          {/* Loading */}
+          {loading && (
+            <div className="flex flex-col gap-0">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <div key={i} className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-[#E5E5E5] dark:border-white/10 animate-pulse">
+                  <div className="col-span-2 h-3 bg-[#050505]/5 dark:bg-white/5 rounded" />
+                  <div className="col-span-2 h-3 bg-[#050505]/5 dark:bg-white/5 rounded" />
+                  <div className="col-span-4 h-3 bg-[#050505]/5 dark:bg-white/5 rounded" />
+                  <div className="col-span-2 h-3 bg-[#050505]/5 dark:bg-white/5 rounded" />
+                  <div className="col-span-2 h-3 bg-[#050505]/5 dark:bg-white/5 rounded" />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Rows */}
+          <AnimatePresence initial={false}>
+            {!loading && filtered.map((entry, idx) => {
+              const isActive = selected?.id === entry.id;
+              return (
+                <motion.div
+                  key={entry.id}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.12, delay: idx * 0.004 }}
+                  onClick={() => setSelected(isActive ? null : entry)}
+                  className={`grid grid-cols-12 gap-4 px-6 py-4 border-b border-[#E5E5E5] dark:border-white/10 cursor-pointer transition-colors ${
+                    isActive ? 'bg-[#FAF9F6] dark:bg-[#1A1A1A]' : 'hover:bg-white dark:hover:bg-[#222]'
+                  }`}
+                >
+                  {/* Block ID */}
+                  <div className="col-span-2 flex items-center gap-2">
+                    <span className="text-[11px] font-black font-mono text-[#050505] dark:text-white">{entry.blockNumber}</span>
+                  </div>
+
+                  {/* Miner */}
+                  <div className="col-span-2 flex items-center">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-[#050505]/50 dark:text-white/50 bg-[#050505]/5 dark:bg-white/5 px-2 py-1 rounded">
+                      {shortHash(entry.miner)}
+                    </span>
+                  </div>
+
+                  {/* Block Hash */}
+                  <div className="col-span-4 flex items-center gap-2">
+                    <span className="text-[10px] font-mono text-[#050505]/50 dark:text-[#AAAAAA] truncate">{shortHash(entry.hash)}</span>
+                    <a
+                      href={`https://etherscan.io/block/${entry.blockNumber}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className="shrink-0 text-[#050505]/20 dark:text-white/20 hover:text-[#050505] dark:hover:text-white transition-colors"
+                    >
+                      <ChevronRight size={10} />
+                    </a>
+                  </div>
+
+                  {/* Tx Count */}
+                  <div className="col-span-2 flex items-center">
+                    <span className="text-[11px] font-black font-mono text-[#050505] dark:text-white">{entry.txCount} txs</span>
+                  </div>
+
+                  {/* Size */}
+                  <div className="col-span-2 flex items-center">
+                    <span className="text-[11px] font-black font-mono text-[#050505] dark:text-white">{entry.sizeKb} KB</span>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+
+          {/* Empty state */}
+          {!loading && filtered.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-24 gap-4">
+              <div className="w-14 h-14 rounded-full bg-[#050505]/5 dark:bg-white/5 flex items-center justify-center">
+                <AlertTriangle size={22} className="text-[#050505]/20 dark:text-white/20" />
+              </div>
+              <span className="text-[11px] font-black uppercase tracking-widest text-[#050505]/30 dark:text-white/30">
+                No entries match current filter
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* ── Detail Panel ── */}
+        <AnimatePresence>
+          {selected && (
+            <motion.div
+              key="ledger-detail"
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: 320, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              className="shrink-0 border-l border-[#E5E5E5] dark:border-white/10 bg-white dark:bg-[#111111] overflow-hidden"
+            >
+              <div className="w-[320px] p-6 flex flex-col gap-5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-[#050505]/40 dark:text-white/40">Block Detail</span>
+                  <button
+                    onClick={() => setSelected(null)}
+                    className="text-[#050505]/30 dark:text-white/30 hover:text-[#050505] dark:hover:text-white transition-colors text-[18px] leading-none"
+                  >×</button>
+                </div>
+
+                {/* Block ID pill */}
+                <div className="p-4 rounded-2xl bg-[#FAF9F6] dark:bg-[#1A1A1A] border border-[#E5E5E5] dark:border-white/10 text-center">
+                  <div className="text-[9px] font-black uppercase tracking-widest text-[#050505]/30 dark:text-white/30 mb-2">Block Height</div>
+                  <div className="text-2xl font-black font-mono text-[#050505] dark:text-white">{selected.blockNumber}</div>
+                </div>
+
+                {/* Fields */}
+                {[
+                  { label: 'Miner / Validator', value: selected.miner, mono: true },
+                  { label: 'Block Hash', value: selected.hash.slice(0, 42) + '...', mono: true },
+                  { label: 'Transactions', value: `${selected.txCount}`, mono: true },
+                  { label: 'Size', value: `${selected.sizeKb} KB`, mono: true },
+                  { label: 'Timestamp', value: new Date(selected.timestamp).toLocaleString(), mono: false },
+                ].map(f => (
+                  <div key={f.label} className="flex flex-col gap-1">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-[#050505]/30 dark:text-white/30">{f.label}</span>
+                    <span className={`text-[11px] font-black text-[#050505] dark:text-white ${f.mono ? 'font-mono break-all' : ''}`}>{f.value}</span>
+                  </div>
+                ))}
+
+                {/* Etherscan link */}
+                <a
+                  href={`https://etherscan.io/block/${selected.blockNumber}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full text-center py-3 rounded-xl bg-[#050505] dark:bg-white text-white dark:text-black text-[10px] font-black uppercase tracking-widest hover:bg-[#050505]/80 dark:hover:bg-white/80 transition-colors flex items-center justify-center gap-2 mt-auto"
+                >
+                  Verify External State
+                </a>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      <div className="shrink-0 px-6 py-3 border-t border-[#E5E5E5] dark:border-white/10 bg-white dark:bg-[#111111] flex items-center justify-between">
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-[#050505]/40 dark:text-white/40">
+            L1 NETWORK ACTIVE
+          </div>
+          <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-[#050505]/40 dark:text-white/40">
+            STATE VERIFIED
+          </div>
+        </div>
+        <span className="text-[9px] font-black uppercase tracking-widest text-[#050505]/20 dark:text-white/20">
+          WAN SYS v3.1
+        </span>
+      </div>
+    </div>
+  );
+}
