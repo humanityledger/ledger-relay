@@ -1,0 +1,13 @@
+node_modules/
+.next/
+.git/
+.env*
+.gemini/
+build.log
+public/Aztec*
+public/*.png
+public/*.jpg
+public/*.jpeg
+public/*.gif
+public/*.mp4
+public/*.webm
