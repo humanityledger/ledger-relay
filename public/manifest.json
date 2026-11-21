@@ -1,0 +1,44 @@
+{
+    "manifest_version": 3,
+    "name": "HumanID.fi | Sovereign Vault",
+    "version": "2.4.1",
+    "description": "Zero-Knowledge Identity Layer & DeFi Governance. Bankless. Permissionless.",
+    "icons": {
+        "16": "assets/icon-16.png",
+        "48": "assets/icon-48.png",
+        "128": "assets/icon-128.png"
+    },
+    "action": {
+        "default_popup": "index.html",
+        "default_title": "Access Vault",
+        "default_icon": {
+            "16": "assets/icon-16.png",
+            "48": "assets/icon-48.png"
+        }
+    },
+    "permissions": [
+        "storage",
+        "activeTab",
+        "unlimitedStorage"
+    ],
+    "host_permissions": [
+        "https://*.humanidfi.com/*",
+        "https://min-api.cryptocompare.com/*",
+        "https://mainnet.base.org/*",
+        "https://wallet-human-polymarket-id-production.up.railway.app/*"
+    ],
+    "content_security_policy": {
+        "extension_pages": "script-src 'self'; object-src 'self'"
+    },
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "assets/*",
+                "next/static/*"
+            ],
+            "matches": [
+                "<all_urls>"
+            ]
+        }
+    ]
+}

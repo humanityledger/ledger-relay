@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* UNIVERSAL A11Y FOCUS */
+:focus-visible {
+  outline: 2px solid #00f2ea;
+  outline-offset: 4px;
+  box-shadow: 0 0 0 4px rgba(0, 242, 234, 0.1);
+  border-radius: 2px;
+}
+
+@layer base {
+  :root {
+    /* --- LIGHT MODE (Default) --- */
+    --bg-page: #ffffff;
+    --bg-surface: #f5f5f5;
+    /* Neutral-100 */
+    --bg-card: #fafafa;
+    /* Neutral-50 */
+
+    --text-primary: #171717;
+    /* Neutral-900 */
+    --text-secondary: #737373;
+    /* Neutral-500 */
+    --text-muted: #a3a3a3;
+    /* Neutral-400 */
+
+    --border-main: #e5e5e5;
+    /* Neutral-200 */
+    --glass-bg: rgba(255, 255, 255, 0.7);
+    --glass-border: rgba(0, 0, 0, 0.1);
+  }
+
+  .dark {
+    /* --- VOID MODE (Dark) --- */
+    --bg-page: #000000;
+    --bg-surface: #0a0a0a;
+    /* Neutral-950 */
+    --bg-card: #171717;
+    /* Neutral-900 */
+
+    --text-primary: #ffffff;
+    --text-secondary: #a3a3a3;
+    /* Neutral-400 */
+    --text-muted: #525252;
+    /* Neutral-600 */
+
+    --border-main: #262626;
+    /* Neutral-800 */
+    --glass-bg: rgba(0, 0, 0, 0.5);
+    --glass-border: rgba(255, 255, 255, 0.1);
+  }
+
+  body {
+    background-color: var(--bg-page);
+    color: var(--text-primary);
+    min-width: 360px;
+    min-height: 600px;
+    overflow-x: hidden;
+    @apply antialiased cursor-default selection:bg-indigo-500/30 selection:text-indigo-200 transition-colors duration-300;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Utilitarios de brillo sutil */
+  .glow-text {
+    text-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+  }
+}
