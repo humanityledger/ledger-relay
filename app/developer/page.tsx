@@ -1,0 +1,13 @@
+import { AztecDocPage } from '@/components/landing/AztecDocPage';
+import { DEVELOPER_SECTIONS } from '@/lib/content/footerPagesAztec';
+
+export default function DeveloperPage() {
+  return (
+    <AztecDocPage
+      eyebrow="Developers · Developer Hub"
+      title="Developer Hub"
+      subtitle="Comprehensive documentation, SDKs, and reference implementations for integrating sovereign-grade zero knowledge privacy into your decentralised applications."
+      sections={DEVELOPER_SECTIONS}
+    />
+  );
+}
