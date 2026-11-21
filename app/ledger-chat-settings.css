@@ -1,0 +1,90 @@
+/**
+ * LedgerChat Dynamic CSS Variables
+ * These are populated at runtime by useSettingsEffect.ts
+ * based on each user's personal settings from pxeEngine.
+ */
+
+:root {
+  /* Chat background — controlled by chat_background setting */
+  --ledger-chat-bg: #FFFFFF;
+
+  /* Font size — controlled by font_size setting */
+  --ledger-chat-font-size: 15px;
+
+  /* Font family — controlled by font_family setting */
+  --ledger-chat-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  /* Message bubble padding — controlled by ui_density setting */
+  --ledger-message-padding: 14px;
+
+  /* Watermark overlay opacity — controlled by watermark_enabled setting */
+  --ledger-watermark-opacity: 0;
+}
+
+/* Apply font globally in chat context */
+.ledger-chat-container {
+  background: var(--ledger-chat-bg);
+  font-family: var(--ledger-chat-font-family);
+  font-size: var(--ledger-chat-font-size);
+}
+
+/* Message bubbles use density variable */
+.ledger-message-bubble {
+  padding: var(--ledger-message-padding);
+}
+
+/* Watermark overlay — always present in DOM, opacity controlled */
+.ledger-watermark {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: var(--ledger-watermark-opacity);
+  transition: opacity 0.3s ease;
+  overflow: hidden;
+  user-select: none;
+  z-index: 10;
+}
+
+.ledger-watermark span {
+  font-size: clamp(40px, 8vw, 80px);
+  font-weight: 900;
+  color: #000;
+  transform: rotate(-30deg);
+  white-space: nowrap;
+  letter-spacing: 0.3em;
+}
+
+/* ── Chat colour themes ────────────────────────────────────────────────────
+   Values come from lib/chat/themes.ts (contrast-tested) and are set as
+   custom properties on the element that carries data-chat-theme: the
+   conversation container in LedgerChatV2 and the Appearance preview. Only the
+   conversation canvas changes; the chrome around it keeps the light tokens.
+   "default" adds nothing, so Classic is exactly the original look. Styles
+   with their own fixed colours (Minimal is unboxed, Terminal is neon on
+   black) are left as they are. */
+[data-chat-theme]:not([data-chat-theme="default"]) .msg-bubble-sent:not(.msg-bubble-plain):not(.msg-bubble-fixed) {
+  background: var(--lc-accent) !important;
+  color: var(--lc-on-accent) !important;
+  border-color: transparent !important;
+}
+[data-chat-theme]:not([data-chat-theme="default"]) .msg-bubble-recv:not(.msg-bubble-plain):not(.msg-bubble-fixed) {
+  background: var(--lc-bubble-received) !important;
+  color: var(--lc-text-primary) !important;
+  border-color: var(--lc-border) !important;
+}
+/* Fixed greys inside a received bubble follow the theme, so a dark theme
+   never puts dark text on a dark bubble. */
+[data-chat-theme]:not([data-chat-theme="default"]) .msg-bubble-recv:not(.msg-bubble-fixed) .text-\[\#15171c\] { color: var(--lc-text-primary) !important; }
+[data-chat-theme]:not([data-chat-theme="default"]) .msg-bubble-recv:not(.msg-bubble-fixed) .text-\[\#727a88\],
+[data-chat-theme]:not([data-chat-theme="default"]) .msg-bubble-recv:not(.msg-bubble-fixed) .text-\[\#a3a9b4\] { color: var(--lc-text-muted) !important; }
+[data-chat-theme]:not([data-chat-theme="default"]) .msg-bubble-recv:not(.msg-bubble-fixed) .bg-\[\#f2f4f7\] { background: color-mix(in srgb, var(--lc-text-primary) 8%, transparent) !important; }
+[data-chat-theme]:not([data-chat-theme="default"]) .msg-bubble-recv:not(.msg-bubble-fixed) .bg-\[\#15171c\] { background: var(--lc-text-primary) !important; }
+/* Minimal bubbles have no box: their text sits on the canvas. */
+[data-chat-theme]:not([data-chat-theme="default"]) .msg-bubble-plain { color: var(--lc-text-primary) !important; }
+/* Time and ticks under a message sit on the canvas. */
+[data-chat-theme]:not([data-chat-theme="default"]) .msg-meta .msg-time,
+[data-chat-theme]:not([data-chat-theme="default"]) .msg-meta .msg-tick { color: var(--lc-meta) !important; }
+[data-chat-theme]:not([data-chat-theme="default"]) .msg-meta .msg-read { color: var(--lc-read) !important; }

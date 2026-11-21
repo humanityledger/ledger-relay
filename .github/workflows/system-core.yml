@@ -1,0 +1,105 @@
+name: ️ System Core  Contract Tests & API Coverage
+
+on:
+  push:
+    paths:
+      - 'contracts/**'
+      - 'test/**'
+      - 'app/api/**'
+      - 'scripts/deploy-system.ts'
+  pull_request:
+    paths:
+      - 'contracts/**'
+      - 'test/**'
+      - 'app/api/**'
+
+jobs:
+  # 
+  # JOB 1: Smart Contract Unit Tests (Hardhat + hardhat-network-helpers)
+  # 
+  contract-tests:
+    name:  Contract Tests (Hardhat)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci --legacy-peer-deps
+
+      # Fails on any compiler warning in our own contracts, so warnings cannot
+      # pile up unnoticed (DoD: hardhat compile clean).
+      - name:  Compile Contracts (no warnings)
+        run: |
+          set -o pipefail
+          npx hardhat compile --force 2>&1 | tee hardhat-compile.log
+          if grep -A1 'Warning:' hardhat-compile.log | grep -E -- '--> contracts/' ; then
+            echo "::error::Solidity compiler warnings in contracts/ (listed above)"
+            exit 1
+          fi
+
+      # The curated suite (package.json test:contracts) runs with
+      # TS_NODE_TRANSPILE_ONLY, as the TS files use mocha globals without
+      # @types/mocha. Previously each step ended in `|| true`, so the job
+      # passed even though no test had run.
+      - name:  Contract tests
+        run: npm run test:contracts
+
+      - name:  Gas Report
+        run: REPORT_GAS=true npx hardhat test --network hardhat
+        continue-on-error: true
+
+  # 
+  # JOB 2: API Route Type Safety
+  # 
+  api-typecheck:
+    name:  API Routes Type Safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci --legacy-peer-deps
+
+      - name: ️ TypeScript check (API routes only)
+        run: npx tsc --noEmit --project tsconfig.json
+        env:
+          SKIP_ENV_VALIDATION: 'true'
+
+  # 
+  # JOB 3: Deploy Dry-Run (localhost fork)
+  # 
+  deploy-dry-run:
+    name:  Deploy Dry-Run (localhost)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [contract-tests]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci --legacy-peer-deps
+
+      - run: npx hardhat compile
+
+      - name:  Deploy System Contracts (localhost dry-run)
+        run: npx hardhat run scripts/deploy-system.ts --network localhost || true
+        env:
+          BACKUP_WALLET_ADDRESS: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+          DEADMAN_TIMEOUT_DAYS:  "90"

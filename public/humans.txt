@@ -1,0 +1,11 @@
+/* TEAM */
+Author: Humanity Ledger / Humanity Ledger S.L.
+Site: humanidfi.com
+From: Earth
+
+/* TECHNOLOGY */
+Standards: Next.js App Router, React 19, Web3, Aztec Protocol
+Cryptography: Noir ZK Circuits, Barretenberg WASM, ECDH X25519, AES-GCM
+Infrastructure: Railway, Cloudflare Edge, Upstash Redis
+Privacy: Zero telemetry. Zero tracking. Structurally incapable of collecting user state.
+Deployment: Railway (sovereign). IPFS-ready via `npm run build:ipfs`.
