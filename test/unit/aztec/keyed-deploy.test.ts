@@ -1,0 +1,40 @@
+/**
+ * Keyed deployment of the token-holding Aztec contracts (A.3). Checks against
+ * the real @aztec-labs SDK and the committed artifacts, no network.
+ */
+import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import { Fr } from '@aztec-labs/aztec.js/fields';
+import { AztecAddress } from '@aztec-labs/aztec.js/addresses';
+import { PublicKeys } from '@aztec-labs/stdlib/keys';
+import { KEYED_ARTIFACT_PATHS, computeKeyedInstance, loadKeyedArtifact } from '../../../lib/aztec/keyed-deploy';
+
+const root = path.resolve(__dirname, '../../..');
+const artifactOf = (c: 'escrow' | 'streams') =>
+  loadKeyedArtifact(JSON.parse(fs.readFileSync(path.join(root, KEYED_ARTIFACT_PATHS[c]), 'utf8')));
+
+describe('keyed deployment (escrow, streams)', () => {
+  // Any valid field element works as the token argument here: the address is not called.
+  const token = AztecAddress.fromStringUnsafe('0x' + '1234'.padStart(64, '0'));
+
+  for (const c of ['escrow', 'streams'] as const) {
+    it(`${c}: the instance commits to keys derived from the secret`, async () => {
+      const artifact = artifactOf(c);
+      const a = await computeKeyedInstance(artifact, { secretKey: new Fr(1n), salt: new Fr(7n), token });
+      const again = await computeKeyedInstance(artifact, { secretKey: new Fr(1n), salt: new Fr(7n), token });
+      const other = await computeKeyedInstance(artifact, { secretKey: new Fr(2n), salt: new Fr(7n), token });
+
+      expect(a.instance.publicKeys.equals(a.publicKeys)).toBe(true);
+      expect(a.publicKeys.isEmpty()).toBe(false);
+      // Not the default keys a plain Contract.deploy() uses: with those, the
+      // contract's token notes could never be spent.
+      expect(a.publicKeys.equals(PublicKeys.default())).toBe(false);
+      // Deterministic: parties can recompute the address from the shared secret.
+      expect(a.instance.address.equals(again.instance.address)).toBe(true);
+      // A different secret gives a different address, so a keyless or
+      // differently keyed contract cannot pass as this one.
+      expect(a.instance.address.equals(other.instance.address)).toBe(false);
+    });
+  }
+});

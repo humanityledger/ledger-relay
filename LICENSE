@@ -1,0 +1,12 @@
+Humanity Ledger Protocol
+Copyright (c) 2024-2026 Humanity Ledger Protocol Contributors
+
+This project is dual-licensed under either:
+
+  * Apache License, Version 2.0 (LICENSE-APACHE or https://www.apache.org/licenses/LICENSE-2.0)
+  * MIT License (LICENSE-MIT or https://opensource.org/licenses/MIT)
+
+at your option.
+
+All source code, Noir circuits (contracts/aztec/), client SDKs, and integration
+tooling are licensed under these terms.
