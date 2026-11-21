@@ -1,0 +1,170 @@
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+ts-debug.log*
+
+# local env files
+.env*.local
+.env
+.env.railway
+.env.production.template
+.env.example
+.env.getblock
+.env.aztec
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+/src/generated/prisma
+
+# logs
+logs/
+*.log
+
+# clerk configuration (can include secrets)
+/.clerk/
+
+# Railway Deploy Fix
+.git/objects/pack/
+*.pack
+*.idx
+node_modules/
+.next/
+
+# Hardhat / Blockchain
+/artifacts/
+/cache/
+/typechain-types/
+.openzeppelin/
+
+# Local Storage (Local Vault / Backups)
+/vault-storage/
+/data/
+/lib/blockchain/abi/*.json
+!/lib/blockchain/abi/SystemDeadmanSwitch.json
+
+# Build Logs
+build.log
+tsc_output.txt
+tmp_diff.txt
+
+# Corrupt / accidental files  never commit these
+{
+console.log('
+tokens.txt
+parse_pools.py
+light_theme.js
+normalize-4k.js
+refactor.js
+replace_terms.js
+purge_jargon.js
+evacuate.js
+powershell.bat
+task.md
+snapshot-config.json
+
+.env.relayer
+scripts/probe-aztec-testnet.mjs
+scripts/test-v4-devnet.mjs
+scripts/tcp-probe.mjs
+scripts/tls-probe.mjs
+scripts/ip-probe.mjs
+scripts/generate-relayer-key.mjs
+pgsql.zip  
+
+# [SECURITY] Local deployment scripts with testnet keys - never commit
+scripts/archive/
+scripts/*.sh
+!scripts/run-all-tests.sh
+# Whitelist verification logs committed as evidence (overrides *.log rule above)
+!docs/verification-logs/
+!docs/verification-logs/*.log
+!scripts/run-endurance-5h.sh
+scripts/wsl*.sh
+scripts/deploy*.sh
+
+# =================================================================
+# CLEANUP: archivos que nunca deben estar en el repo publico
+# =================================================================
+
+# Documentos personales/corporativos
+*CV*.pdf
+*_CV.pdf
+*Curriculum*.pdf
+*Architecture*Security*.pdf
+*Dossier*.pdf
+CV_*.docx
+Documento_*.txt
+Documento_*.md
+Masterclass_*.md
+*.docx
+raw_pdf_*.txt
+extracted_pdf.txt
+public/*stefan*
+scripts/fetch_*.cjs
+scripts/generate_*cv*.cjs
+scripts/create-admin*.js
+
+# Scripts temporales de debug
+find_*.py
+fix_*.py
+fix_*.js
+patch_*.py
+patch*.py
+patch*.js
+verify_*.py
+verify_*.js
+scratch_tsc*.txt
+tsc*.txt
+tsc*.log
+ts_errors.log
+build-err.log
+build-out.log
+claim-output.log
+
+# Accidentes de redireccion de shell
+9.1.0
+markets
+node-allocation
+
+# Config interno
+gtm_container_export.json
+snapshot-config.json
+set_railway_vars.bat
+powershell.bat
+
+# Directorios temporales
+scratch/
+tmp_*/
+.neon
+_to_delete/
+.cache/
+.bb-crs/
+
+# Aztec test network operator secrets (admin of the test tokens). Never commit.
+.aztec-testnet.local.json
+
