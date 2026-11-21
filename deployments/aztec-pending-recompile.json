@@ -1,0 +1,4 @@
+{
+  "$comment": "Sources that are deliberately ahead of their committed artifact. Checked by scripts/aztec/check-artifact-sources.mjs on every PR. The app deploys and recognises the ARTIFACT (class IDs in deployments/aztec-testnet.json), not this source. To clear an entry: let the 'Aztec contracts' workflow recompile, record the new class IDs (old ones tracksCurrentArtifact=false), run the testnet e2e, then delete the entry.",
+  "pending": []
+}

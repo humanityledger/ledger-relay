@@ -1,0 +1,612 @@
+'use client';
+
+import React, { useState, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Settings, ChevronRight, Eye, EyeOff, Copy, Check,
+  ExternalLink, RefreshCw, AlertTriangle, Zap, Lock, Key,
+  BarChart3, Layers, Waves, FileText, QrCode,
+  X, Sparkles, Globe, ArrowUpRight, ArrowDownLeft, Clock, Server,
+  Loader2, CheckCircle
+} from 'lucide-react';
+import { getIdentity, createIdentity, updateIdentity, ZkIdentity } from '@/lib/zk/zkIdentity';
+import { getPrivateWallet, type WalletSnapshot, type TokenBalance } from '@/lib/aztec/wallet/client';
+import { AZTEC_WALLET_CONFIG, networkLabel } from '@/lib/aztec/wallet/config';
+import type { Activity } from '@/lib/aztec/wallet/history';
+import { ZkBridgePortal } from './ZkBridgePortal';
+import { ZkPrivacyScore } from './ZkPrivacyScore';
+import { ZkStreamManager } from './ZkStreamManager';
+import { ZkShieldModal } from './ZkShieldModal';
+import { ZkSequencerDashboard } from './ZkSequencerDashboard';
+
+interface ZkSettingsPanelProps {
+  userAddress: string;
+  onClose: () => void;
+}
+
+type SettingsTab = 'overview' | 'identity' | 'keys' | 'privacy' | 'streams' | 'bridge' | 'sequencer';
+
+interface NodeStatus {
+  synced: boolean;
+  blockNumber: number;
+  version: string;
+}
+
+/** Format a TokenBalance bigint amount as a human-readable string. */
+function formatTokenBalance(units: bigint, decimals: number, dp: number = 4): string {
+  const divisor = BigInt(10 ** decimals);
+  const whole = units / divisor;
+  const frac = units % divisor;
+  const fracStr = frac.toString().padStart(decimals, '0').slice(0, dp);
+  return `${whole}.${fracStr}`;
+}
+
+export function ZkSettingsPanel({ userAddress, onClose }: ZkSettingsPanelProps) {
+  const [tab, setTab] = useState<SettingsTab>('overview');
+  const [identity, setIdentity] = useState<ZkIdentity | null>(null);
+  const [walletSnapshot, setWalletSnapshot] = useState<WalletSnapshot | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [nodeStatus, setNodeStatus] = useState<NodeStatus | null>(null);
+  const [nodeError, setNodeError] = useState(false);
+  const [showKeys, setShowKeys] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [editingHandle, setEditingHandle] = useState(false);
+  const [newHandle, setNewHandle] = useState('');
+  const [shieldMode, setShieldMode] = useState<'shield' | 'unshield' | null>(null);
+
+  // Derive values from wallet snapshot
+  const balances: TokenBalance[] = walletSnapshot?.balances ?? [];
+  const txHistory: Activity[] = walletSnapshot?.activity ?? [];
+  const activeAztecAddress = walletSnapshot?.aztecAddress;
+
+  // Fetch node status from real API endpoint
+  const fetchNodeStatus = useCallback(async () => {
+    try {
+      const r = await fetch('/api/aztec/node/');
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const json: NodeStatus = await r.json();
+      setNodeStatus(json);
+      setNodeError(false);
+    } catch {
+      setNodeStatus(null);
+      setNodeError(true);
+    }
+  }, []);
+
+  const loadData = useCallback(async () => {
+    // Load identity
+    const id = getIdentity(userAddress);
+    setIdentity(id);
+
+    // Load wallet snapshot
+    try {
+      const wallet = getPrivateWallet();
+      const snap = wallet.state;
+      setWalletSnapshot(snap);
+    } catch {
+      setWalletSnapshot(null);
+    }
+
+    // Fetch node status
+    await fetchNodeStatus();
+  }, [userAddress, fetchNodeStatus]);
+
+  // Subscribe to wallet changes
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    try {
+      const wallet = getPrivateWallet();
+      // Load initial state
+      setWalletSnapshot(wallet.state);
+      // Subscribe to future changes
+      unsubscribe = wallet.subscribe((snap: WalletSnapshot) => {
+        setWalletSnapshot(snap);
+      });
+    } catch {
+      // wallet not ready yet
+    }
+    return () => { unsubscribe?.(); };
+  }, []);
+
+  useEffect(() => {
+    loadData();
+    const handler = () => loadData();
+    window.addEventListener('ledger_zk_balance_updated', handler);
+    return () => window.removeEventListener('ledger_zk_balance_updated', handler);
+  }, [loadData]);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const wallet = getPrivateWallet();
+      const snap = wallet.state;
+      setWalletSnapshot(snap);
+      await fetchNodeStatus();
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleCopy = (text: string, key: string) => {
+    navigator.clipboard?.writeText(text).catch(() => {});
+    setCopied(key);
+    setTimeout(() => setCopied(null), 2000);
+  };
+
+  const handleSaveHandle = () => {
+    if (!newHandle || !newHandle.match(/^[a-z0-9_.-]{3,32}$/)) return;
+    const fullHandle = `zk:${newHandle}`;
+    if (identity) {
+      updateIdentity(userAddress, { zkHandle: fullHandle });
+    } else {
+      createIdentity(userAddress, fullHandle);
+    }
+    setIdentity(getIdentity(userAddress));
+    setEditingHandle(false);
+  };
+
+  // Compute total USD from real balances
+  // Rough price map — replace with real oracle if available
+  const PRICE_USD: Record<string, number> = { ETH: 3200, DAI: 1, USDC: 1, WETH: 3200 };
+  const totalUSD = balances.reduce((acc, b) => {
+    const humanAmt = Number(formatTokenBalance(b.privateUnits + b.publicUnits, b.decimals));
+    const price = PRICE_USD[b.symbol?.toUpperCase?.()] ?? 0;
+    return acc + humanAmt * price;
+  }, 0).toFixed(2);
+
+  const tabs: Array<{ key: SettingsTab; label: string; icon: React.ReactNode }> = [
+    { key: 'overview', label: 'Overview', icon: <BarChart3 size={15} /> },
+    { key: 'identity', label: 'Identity', icon: <Lock size={15} /> },
+    { key: 'keys', label: 'Crypto Keys', icon: <Key size={15} /> },
+    { key: 'privacy', label: 'Privacy', icon: <Lock size={15} /> },
+    { key: 'streams', label: 'Streams', icon: <Waves size={15} /> },
+    { key: 'bridge', label: 'Network fees', icon: <Layers size={15} /> },
+    { key: 'sequencer', label: 'Sequencer & V6', icon: <Server size={15} /> },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 16 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 16 }}
+        transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+        className="bg-white rounded-3xl shadow-2xl border border-black/[0.08] w-full max-w-4xl max-h-[90vh] flex overflow-hidden"
+      >
+        {/* Left Sidebar */}
+        <div className="w-56 shrink-0 bg-[#FAFAFA] border-r border-black/[0.06] flex flex-col">
+          {/* Header */}
+          <div className="p-5 border-b border-black/[0.06]">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-8 h-8 rounded-xl bg-[#1C1C1E] flex items-center justify-center">
+                <Lock size={16} className="text-white" strokeWidth={2.2} />
+              </div>
+              <div>
+                <span className="text-[13px] font-black text-gray-900">zk.money</span>
+                <span className="text-[9px] font-semibold text-gray-400 block leading-tight">Aztec Network</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Nav Items */}
+          <nav className="flex-1 py-3 space-y-0.5 px-2">
+            {tabs.map(t => (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-[13px] font-semibold transition ${
+                  tab === t.key
+                    ? 'bg-[#1C1C1E] text-white'
+                    : 'text-gray-600 hover:bg-black/5 hover:text-gray-900'
+                }`}
+              >
+                <span className={tab === t.key ? 'text-white' : 'text-gray-400'}>{t.icon}</span>
+                {t.label}
+                {tab === t.key && <ChevronRight size={13} className="ml-auto text-white/60" />}
+              </button>
+            ))}
+          </nav>
+
+          {/* Node Status Indicator */}
+          <div className="p-4 border-t border-black/[0.06]">
+            <div className="flex items-center gap-2 text-[11px]">
+              {nodeError ? (
+                <AlertTriangle size={12} className="text-amber-500" />
+              ) : nodeStatus?.synced ? (
+                <CheckCircle size={12} className="text-emerald-500" />
+              ) : (
+                <Loader2 size={12} className="animate-spin text-gray-400" />
+              )}
+              <span className="text-gray-600 font-medium">
+                {nodeError
+                  ? 'Node unreachable'
+                  : nodeStatus?.synced
+                    ? `Block #${nodeStatus.blockNumber}`
+                    : 'Connecting...'}
+              </span>
+            </div>
+            <div className="text-[10px] text-gray-400 mt-0.5">{networkLabel()}</div>
+          </div>
+        </div>
+
+        {/* Right Content */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Close Button */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-black/[0.06]">
+            <h2 className="text-[16px] font-black text-gray-900">
+              {tabs.find(t => t.key === tab)?.label}
+            </h2>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-black/5 text-gray-400 hover:text-gray-700 transition"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-6">
+            {/* ─── Overview Tab ──────────────────────────────────────────────── */}
+            {tab === 'overview' && (
+              <div className="space-y-5">
+                {/* Balance Cards */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-[13px] font-bold text-gray-700">Shielded Balances</h3>
+                    <button
+                      onClick={handleSync}
+                      disabled={syncing}
+                      className="flex items-center gap-1.5 text-[11px] font-bold text-black/70 hover:text-black transition"
+                    >
+                      <RefreshCw size={12} className={syncing ? 'animate-spin' : ''} />
+                      Sync from Aztec
+                    </button>
+                  </div>
+
+                  {balances.length === 0 ? (
+                    <div className="text-center py-6 text-gray-400 bg-[#FAFAFA] border border-black/[0.06] rounded-2xl">
+                      <Lock size={22} strokeWidth={1.5} className="mx-auto mb-2 text-gray-300" />
+                      <p className="text-[13px]">No shielded balances found. Connect your Aztec wallet to get started.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-3">
+                      {balances.map((b) => {
+                        const privateAmt = formatTokenBalance(b.privateUnits, b.decimals, b.symbol === 'ETH' ? 4 : 2);
+                        const price = PRICE_USD[b.symbol?.toUpperCase?.()] ?? 0;
+                        const usd = (Number(privateAmt) * price).toFixed(2);
+                        return (
+                          <div key={b.key ?? b.symbol} className="bg-[#FAFAFA] border border-black/[0.06] rounded-2xl p-4">
+                            <div className="flex items-center gap-1.5 mb-2">
+                              <span className="text-[11px] font-bold text-gray-700 bg-black/5 px-2 py-0.5 rounded-md font-mono">
+                                zk{b.symbol}
+                              </span>
+                            </div>
+                            <div className="text-[18px] font-black text-gray-900 font-mono leading-tight">{privateAmt}</div>
+                            <div className="text-[11px] text-gray-400 mt-0.5">≈ ${usd} USD</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Total */}
+                  <div className="mt-3 bg-[#FAFAFA] border border-black/[0.06] rounded-2xl p-4 flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Total Private Portfolio</span>
+                      <div className="text-[22px] font-black text-gray-900 font-mono">${totalUSD}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setShieldMode('shield')}
+                        className="flex items-center gap-1.5 px-3.5 py-2 bg-[#1C1C1E] text-white text-[12px] font-semibold rounded-xl hover:bg-black transition"
+                      >
+                        <ArrowDownLeft size={13} /> Shield Funds
+                      </button>
+                      <button
+                        onClick={() => setShieldMode('unshield')}
+                        className="flex items-center gap-1.5 px-3.5 py-2 bg-[#F2F2F7] text-gray-700 text-[12px] font-semibold rounded-xl hover:bg-[#E5E5EA] transition border border-black/[0.04]"
+                      >
+                        <ArrowUpRight size={13} /> Unshield
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Activity Stats */}
+                <div>
+                  <h3 className="text-[13px] font-bold text-gray-700 mb-3">Activity Summary</h3>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { label: 'Total Txs', value: txHistory.length },
+                      { label: 'Shields', value: txHistory.filter(a => a.kind === 'shield').length },
+                      { label: 'Privacy Score', value: 'N/A — on-chain' },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="bg-[#FAFAFA] border border-black/[0.06] rounded-2xl p-3 text-center">
+                        <div className="text-[20px] font-black text-gray-900">{value}</div>
+                        <div className="text-[10px] text-gray-400 font-semibold mt-0.5">{label}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Recent Transactions */}
+                <div>
+                  <h3 className="text-[13px] font-bold text-gray-700 mb-3">Recent Private Transactions</h3>
+                  {txHistory.length === 0 ? (
+                    <div className="text-center py-8 text-gray-400">
+                      <Lock size={24} strokeWidth={1.5} className="mx-auto mb-2 text-gray-300" />
+                      <p className="text-[13px]">No transactions yet. Send your first shielded payment!</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {txHistory.slice(0, 5).map((tx, i) => {
+                        const kindIcon =
+                          tx.kind === 'send' || tx.kind === 'unshield' ? (
+                            <ArrowUpRight size={14} />
+                          ) : (
+                            <ArrowDownLeft size={14} />
+                          );
+                        const isOut = tx.kind === 'send' || tx.kind === 'unshield' || tx.kind === 'shield';
+                        return (
+                          <div key={i} className="flex items-center justify-between bg-[#FAFAFA] border border-black/[0.06] rounded-xl px-4 py-2.5">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-full bg-black/5 flex items-center justify-center text-gray-700">
+                                {kindIcon}
+                              </div>
+                              <div>
+                                <div className="text-[12px] font-bold text-gray-900 capitalize">{tx.kind}</div>
+                                <div className="text-[10px] text-gray-400 font-mono">
+                                  {tx.createdAt ? new Date(tx.createdAt).toLocaleDateString() : '—'}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className={`text-[13px] font-bold font-mono ${isOut ? 'text-red-500' : 'text-emerald-600'}`}>
+                                {isOut ? '-' : '+'}{(tx as any).amount ?? ''} {(tx as any).symbol ?? ''}
+                              </div>
+                              {(tx as any).txHash && (
+                                <span className="text-[10px] text-black/40 font-mono">
+                                  {String((tx as any).txHash).slice(0, 10)}…
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ─── Identity Tab ──────────────────────────────────────────────── */}
+            {tab === 'identity' && (
+              <div className="space-y-5">
+                {/* Current Identity Card (Pure executive Swiss white card) */}
+                <div className="bg-white border border-black/[0.08] rounded-2xl p-5 text-[#1C1C1E] shadow-sm">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-12 h-12 rounded-2xl bg-black/5 flex items-center justify-center">
+                      <Lock size={22} className="text-[#1C1C1E]" strokeWidth={2.2} />
+                    </div>
+                    <div>
+                      <div className="text-[16px] font-black text-[#1C1C1E]">{identity?.zkHandle || 'Not registered'}</div>
+                      <div className="text-[11px] text-black/50 font-mono">Humanity Ledger Confidential Identity</div>
+                    </div>
+                    {identity?.verified && (
+                      <span className="ml-auto text-[10px] font-bold bg-black/5 text-[#1C1C1E] px-2 py-0.5 rounded-full border border-black/10">
+                        ✓ Verified
+                      </span>
+                    )}
+                  </div>
+                  <div className="space-y-2 text-[11px] font-mono text-black/60">
+                    <div className="flex justify-between">
+                      <span className="text-black/40">EVM Address</span>
+                      <span>{userAddress.slice(0, 10)}...{userAddress.slice(-6)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-black/40">Aztec Address</span>
+                      <span className="text-black/80">
+                        {activeAztecAddress
+                          ? `${activeAztecAddress.slice(0, 14)}...${activeAztecAddress.slice(-6)}`
+                          : 'Derived upon confidential connection'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-black/40">Reputation</span>
+                      <span className="text-black/80">{identity?.reputationScore || 0} pts</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Edit Handle */}
+                <div className="bg-[#FAFAFA] border border-black/[0.06] rounded-2xl p-4">
+                  <h3 className="text-[13px] font-bold text-gray-900 mb-3">zk.money Handle</h3>
+                  {editingHandle ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13px] font-bold text-[#1C1C1E]">zk:</span>
+                        <input
+                          type="text"
+                          value={newHandle}
+                          onChange={e => setNewHandle(e.target.value.toLowerCase().replace(/[^a-z0-9_.-]/g, ''))}
+                          placeholder="yourhandle"
+                          className="flex-1 bg-white border border-black/[0.08] rounded-xl px-3 py-2 text-[13px] font-mono outline-none focus:border-black/30"
+                          maxLength={32}
+                          autoFocus
+                        />
+                      </div>
+                      <div className="text-[11px] text-gray-400">3–32 chars, lowercase letters, numbers, _.-</div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleSaveHandle}
+                          disabled={!newHandle.match(/^[a-z0-9_.-]{3,32}$/)}
+                          className="flex-1 py-2 bg-[#1C1C1E] text-white text-[12px] font-bold rounded-xl hover:bg-black transition disabled:opacity-50 shadow-sm"
+                        >
+                          Confirm Handle
+                        </button>
+                        <button
+                          onClick={() => setEditingHandle(false)}
+                          className="px-4 py-2 bg-[#f0f2f5] text-gray-600 text-[12px] font-bold rounded-xl"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-[14px] font-bold text-gray-900 font-mono">{identity?.zkHandle || 'Not set'}</div>
+                        <div className="text-[11px] text-gray-400 mt-0.5">Your public zk.money identity</div>
+                      </div>
+                      <button
+                        onClick={() => { setEditingHandle(true); setNewHandle(identity?.zkHandle?.replace('zk:', '') || ''); }}
+                        className="px-3 py-1.5 bg-black/5 text-[#1C1C1E] text-[11px] font-bold rounded-lg hover:bg-black/10 transition"
+                      >
+                        {identity ? 'Edit' : 'Register'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Identity Details */}
+                <div className="space-y-2">
+                  {[
+                    { label: 'Display Name', value: identity?.displayName || '—', editable: true },
+                    { label: 'ENS Name', value: identity?.ensName || '—', editable: false },
+                    { label: 'Total Transactions', value: identity?.totalTransactions?.toString() || '0', editable: false },
+                    { label: 'Created', value: identity ? new Date(identity.createdAt).toLocaleDateString() : '—', editable: false },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="flex items-center justify-between bg-[#FAFAFA] border border-black/[0.06] rounded-xl px-4 py-2.5">
+                      <span className="text-[12px] text-gray-500 font-medium">{label}</span>
+                      <span className="text-[12px] font-semibold text-gray-900 font-mono">{value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ─── Keys / Security Tab ────────────────────────────────────────── */}
+            {tab === 'keys' && (
+              <div className="space-y-4">
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-start gap-3">
+                  <Lock size={16} className="text-emerald-700 mt-0.5 flex-shrink-0" />
+                  <div className="text-[12px] text-emerald-900 leading-relaxed">
+                    <strong>Zero-Custody Cryptographic Enclave:</strong> Real Aztec keys (sk_m, nsk_m, ivsk_m) are derived exclusively in local Web Worker memory and never exposed to the DOM or transmitted over the network.
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="bg-[#FAFAFA] border border-black/[0.06] rounded-2xl p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[13px] font-bold text-gray-900">Encrypted Storage at Rest (OPFS)</div>
+                      <span className="text-[10.5px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-200">
+                        AES-256 Encrypted
+                      </span>
+                    </div>
+                    <p className="text-[11.5px] text-gray-500 leading-normal">
+                      Local PXE notes and account database are encrypted using SQLCipher over Origin Private File System (OPFS). Keys are derived via HKDF-SHA256 from your wallet signature.
+                    </p>
+                    <div className="font-mono text-[11px] text-gray-700 bg-white border border-black/[0.05] rounded-xl px-3 py-2">
+                      Store Info: hl/aztec/v1/store (32-byte derived key)
+                    </div>
+                  </div>
+
+                  <div className="bg-[#FAFAFA] border border-black/[0.06] rounded-2xl p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[13px] font-bold text-gray-900">Proving Bundle Integrity</div>
+                      <span className="text-[10.5px] font-bold bg-black/5 text-[#1C1C1E] px-2 py-0.5 rounded-full border border-black/10">
+                        UltraHonk BN254
+                      </span>
+                    </div>
+                    <p className="text-[11.5px] text-gray-500 leading-normal">
+                      Client-side proofs use Barretenberg 5.3.0 with SHA-256 verification keys pinned against on-chain contract verifiers.
+                    </p>
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[11px] font-mono text-gray-600">Verification Endpoint: /api/security/integrity</span>
+                      <a
+                        href="/api/security/integrity"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11.5px] font-semibold text-[#15171c] hover:underline flex items-center gap-1"
+                      >
+                        Inspect Manifest <ExternalLink size={12} />
+                      </a>
+                    </div>
+                  </div>
+
+                  <div className="bg-[#FAFAFA] border border-black/[0.06] rounded-2xl p-4 space-y-2">
+                    <div className="text-[13px] font-bold text-gray-900">Memory & Storage Hygiene</div>
+                    <p className="text-[11.5px] text-gray-500 leading-normal">
+                      Upon session sign-out, all local OPFS stores and IndexedDB message caches are purged via the secure wipe routine.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ─── Privacy Tab ─────────────────────────────────────────────────── */}
+            {tab === 'privacy' && (
+              <div className="space-y-5">
+                <ZkPrivacyScore address={userAddress} />
+
+                <div className="bg-[#FAFAFA] border border-black/[0.06] rounded-2xl p-4 space-y-3">
+                  <h3 className="text-[13px] font-bold text-gray-900">Privacy Configuration</h3>
+
+                  {[
+                    { label: 'Shield new payments automatically', desc: 'Auto-shield any received token to Aztec', enabled: true },
+                    { label: 'Enforce anonymity set minimum', desc: 'Wait for ≥5 other notes before spending', enabled: true },
+                    { label: 'Rotate spending keys quarterly', desc: 'Derive fresh note keys every 90 days', enabled: false },
+                    { label: 'Tor relay for PXE calls', desc: 'Route Aztec node queries through Tor (slower)', enabled: false },
+                    { label: 'Encrypted local note cache', desc: 'Store notes with AES-256 encryption locally', enabled: true },
+                  ].map(({ label, desc, enabled }) => (
+                    <div key={label} className="flex items-center justify-between py-2 border-b border-black/[0.04] last:border-0">
+                      <div>
+                        <div className="text-[12px] font-semibold text-gray-900">{label}</div>
+                        <div className="text-[10px] text-gray-400 mt-0.5">{desc}</div>
+                      </div>
+                      <div
+                        className={`w-10 h-5.5 rounded-full relative cursor-pointer transition-colors ${enabled ? 'bg-[#1C1C1E]' : 'bg-gray-200'}`}
+                        style={{ minWidth: 40, height: 22 }}
+                      >
+                        <div className={`absolute top-0.5 w-[18px] h-[18px] rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-[20px]' : 'translate-x-0.5'}`} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ─── Streams Tab ─────────────────────────────────────────────────── */}
+            {tab === 'streams' && (
+              <ZkStreamManager
+                userAddress={userAddress}
+                userTag={identity?.zkHandle}
+              />
+            )}
+
+            {/* ─── Network fees: Fee Juice station on Aztec Alpha (ZkBridgePortal) ── */}
+            {tab === 'bridge' && (
+              <ZkBridgePortal userAddress={userAddress} />
+            )}
+
+            {/* ─── Sequencer & V6 Dashboard Tab ────────────────────────────────── */}
+            {tab === 'sequencer' && (
+              <ZkSequencerDashboard userAddress={userAddress} className="border-0 shadow-none" />
+            )}
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Shield/Unshield Modal */}
+      <AnimatePresence>
+        {shieldMode && (
+          <ZkShieldModal
+            address={userAddress}
+            mode={shieldMode}
+            onClose={() => setShieldMode(null)}
+            onSuccess={() => { setShieldMode(null); handleSync(); }}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}

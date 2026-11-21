@@ -1,0 +1,1959 @@
+// schema.prisma
+datasource db {
+  provider = "postgresql"
+
+  // Neon hands out two connection strings and they are not interchangeable.
+  //
+  //   DATABASE_URL           pooled, through PgBouncer in transaction mode.
+  //                          Right for the application: many short-lived
+  //                          queries sharing a small pool.
+  //   DATABASE_URL_UNPOOLED  direct to the Postgres instance.
+  //                          Required for migrations and introspection, which
+  //                          open session-level constructs (advisory locks,
+  //                          prepared statements, CREATE TYPE) that PgBouncer
+  //                          in transaction mode cannot carry across.
+  //
+  // Pointing `url` at the pooled string without declaring `directUrl` is the
+  // classic Neon + Prisma failure: the app runs fine, then `prisma migrate`
+  // hangs on an advisory lock or reports a phantom drift.
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
+  // NOTE: pg_trgm/btree_gin/unaccent extensions omitted 
+  // Railway PostgreSQL does not guarantee superuser extension access.
+  // Full-text search is handled at the application layer via Prisma fullTextSearchPostgres.
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions", "fullTextSearchPostgres"]
+  binaryTargets   = ["native", "debian-openssl-3.0.x"]
+}
+
+// 
+// TRI-LAYER KINETIC MATRICES & ARTICLES
+// 
+
+model Article {
+  id          String   @id @default(uuid())
+  title       String
+  content     String   @db.Text
+  sentiment   Float // AI Score 0-100 indicating sentiment
+  bias        String // "Bullish", "Bearish", "Neutral"
+  category    String // "Macro", "Regulation", "DeFi", "Hacks"
+  publishedAt DateTime @default(now())
+  sectorId    String?
+  author      String
+
+  sector Sector? @relation(fields: [sectorId], references: [id])
+
+  //   INDEXACIÓN CÓSMICA: Articulación para texto completo e informes temporales
+  @@index([category, publishedAt(sort: Desc)]) // Filtrado rápido por categoría + cronología
+  @@index([bias, sentiment]) // Análisis de polaridad institucional
+  @@index([sectorId, publishedAt(sort: Desc)]) // Drill-down por sector en dashboards
+}
+
+// 
+// 103 MICRO-SECTORS ENGINE
+// 
+
+model Sector {
+  id          String    @id @default(uuid())
+  slug        String    @unique // e.g. "layer-1", "ai", "rwa", "yield-farming"
+  name        String
+  description String?   @db.Text
+  totalTvl    Float     @default(0.0)
+  volume24h   Float     @default(0.0)
+  zScore      Float // Custom Ledger Rotation Score
+  articles    Article[]
+
+  //   INDEXACIÓN CÓSMICA: Rendimiento y ordenamiento dinámico
+  @@index([zScore(sort: Desc)]) // Top Sectors by Ledger Rotation Score
+  @@index([totalTvl(sort: Desc)]) // Ranking por TVL en tiempo real
+}
+
+// 
+// SOVEREIGN AUTHORITY & COMMERCIAL ONTOLOGY
+// 
+
+model GoldRegistryAudit {
+  id                String  @id @default(uuid())
+  platformName      String
+  slug              String  @unique
+  type              String // "Casino", "Wallet", "Exchange", "PredictionMarket"
+  isVerifiedOnChain Boolean @default(false)
+  smartContractRef  String? // Contract validated by local/Polygon ping
+  solvencyStatus    String // "Confirmed", "Suspicious", "Unknown"
+  systemBridgeUrl   String // E.g., The dark-pool routed affiliate bridge
+
+  // High-performance metrics tailored to CryptoSlate's taxonomies
+  features        String[] // ["No KYC", "Instant Withdrawal", "Cold Storage"]
+  supportedChains String[] // ["Ethereum", "Solana", "Base"]
+}
+
+// 
+// ECOSYSTEM MAPPING
+// 
+
+model EcosystemWarRoomData {
+  id            String @id @default(uuid())
+  chainName     String @unique
+  chainSymbol   String
+  totalEntities Int    @default(0)
+  tvl           Float  @default(0.0)
+  volume24h     Float  @default(0.0)
+}
+
+// 
+// SOVEREIGN USER PROFILES & WATCHLISTS
+// 
+
+model User {
+  id                String   @id @default(uuid())
+  walletAddress     String   @unique
+  displayName       String?
+  avatarUrl         String?  @db.Text
+  bio               String?  @db.Text
+  isPro             Boolean  @default(false)
+  isZkVerified      Boolean  @default(false)
+  tier              String   @default("FREE")
+  lastActive        DateTime @default(now())
+  goldTicketTokenId String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  worldIdNullifierHash String? @unique
+
+  //  General Settings 
+  theme         String @default("light")
+  currency      String @default("USD")
+  language      String @default("en")
+  timeFormat    String @default("24h") // "12h" | "24h"
+  dateFormat    String @default("DD/MM/YYYY") // "DD/MM/YYYY" | "MM/DD/YYYY"
+  addressFormat String @default("truncated") // "truncated" | "full"
+
+  //  Display & Hardware 
+  showBalances         Boolean  @default(true)
+  hiddenAssets         String[] @default([])
+  defaultTimeframe     String   @default("1W") // "1D", "1W", "1M", "ALL"
+  displayUnit          String   @default("FIAT") // "FIAT", "BTC", "ETH"
+  layoutDensity        String   @default("compact") // "relaxed" | "compact" | "dense"
+  hardwareAcceleration Boolean  @default(true)
+
+  //  Network & RPC 
+  gasPreset     String  @default("STANDARD") // "ECONOMY" | "STANDARD" | "FAST" | "INSTANT"
+  customRpcUrl  String?
+  mevProtection Boolean @default(false)
+  maxSlippage   Float   @default(0.5)
+  testnetMode   Boolean @default(false)
+
+  //  Privacy & Security 
+  inactivityLockMinutes Int     @default(60)
+  autoDisconnectTimer   String  @default("1h") // "15m" | "1h" | "24h" | "never"
+  stealthMode           Boolean @default(false)
+  requireSignForExports Boolean @default(true)
+  allowAnalytics        Boolean @default(true)
+  extendedSettings      Json?   @default("{}")
+
+  //  Sonar Alerts 
+  emailAlerts          Boolean @default(false)
+  telegramAlerts       Boolean @default(false)
+  ledgerAlertThreshold Float   @default(1000000)
+  soundEffects         Boolean @default(true)
+
+  //  Ledger Chat 
+  chatName    String  @default("Ledger User")
+  chatBio     String  @default("")
+  qrLabel     String  @default("Scan My Wallet")
+  chatPinHash String?
+
+  // Enclave PIN (Turing Shield Gate) — HMAC-SHA256 hash, never plaintext
+  enclavePinHash String?
+
+  // Enclave PIN Reset — OTP fields (10-min TTL, max 5 verify attempts)
+  enclaveOtpHash      String?
+  enclaveOtpExpiresAt DateTime?
+  enclaveOtpAttempts  Int       @default(0)
+
+  // Enclave PIN Reset — Rate Limiting & Clearance Token
+  otpSentCount          Int       @default(0)
+  otpLastSentAt         DateTime?
+  enclaveClearanceToken String?
+  enclaveClearanceTs    DateTime?
+
+  // Forum-specific settings
+  isAdmin         Boolean @default(false)
+  notifyOnReply   Boolean @default(true)
+  notifyOnMention Boolean @default(true)
+
+  clerkId              String? @unique
+  email                String? @unique
+  snxAccountId         String? @unique
+  stripeCustomerId     String? @unique
+  stripeSubscriptionId String? @unique
+
+  watchlists       Watchlist[]
+  alerts           Alert[]
+  canvasState      CanvasState?
+  progress         UserProgress[]
+  submissions      AcademySubmission[]
+  sentMessages     MentoringMessage[]  @relation("SentMessages")
+  receivedMessages MentoringMessage[]  @relation("ReceivedMessages")
+
+  // Forum Relations
+  forumTopics        ForumTopic[]
+  forumPosts         ForumPost[]
+  forumLikes         ForumLike[]
+  forumNotifications ForumNotification[]
+  actorNotifications ForumNotification[] @relation("ActorNotifications")
+
+  apiKeys           ApiKey[]
+  watchedWallets    WatchedWallet[]
+  exchangePositions ExchangePosition[]
+
+  // System Credits & Humanity Ledger (Node V4.0)
+  creditsBalance Int             @default(2500)
+  humanityScore  Int             @default(0)
+  creditLedgers  CreditLedger[]
+  humanityEvents HumanityEvent[]
+  notifications  Notification[]
+
+  //   INDEXACIÓN CÓSMICA: Segmentación de usuarios para analytics y acceso a nivel Pro
+  @@index([tier, lastActive(sort: Desc)]) // Consulta de usuarios activos por tier
+  @@index([isPro, createdAt(sort: Desc)]) // Funnel de conversión Pro
+  @@index([createdAt(sort: Desc)]) // Registro cronológico general
+}
+
+model CreditLedger {
+  id          String   @id @default(uuid())
+  userId      String
+  amount      Int // Negative for usage, positive for top-up
+  action      String // E.g., 'NEO4J_QUERY', 'Z_SCORE_THERMO'
+  description String?
+  timestamp   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, timestamp(sort: Desc)])
+}
+
+model HumanityEvent {
+  id        String   @id @default(uuid())
+  userId    String
+  eventType String // E.g., 'EIP191_SIGNATURE', 'FORUM_POST'
+  points    Int
+  timestamp DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, timestamp(sort: Desc)])
+}
+
+model ApiKey {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  userId    String
+  plan      String   @default("ledger")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [walletAddress], onDelete: Cascade)
+
+  @@index([userId, isActive])
+}
+
+model AuthUser {
+  id               String    @id @default(uuid())
+  email            String?   @unique
+  name             String?
+  username         String?   @unique
+  passwordHash     String?
+  walletAddress    String?   @unique
+  verified         Boolean   @default(false)
+  verificationCode String? // legacy inline code field (kept for compatibility)
+  codeExpiresAt    DateTime?
+  totpSecret       String?   @db.Text
+  backupCodes      String[]  @default([])
+  lastLoginAt      DateTime?
+  recoveryEmail    String?
+  // encryptedPrivateKey String? (Removed for Non-Custodial Sovereign compliance)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Enclave PIN (Turing Shield Gate) — HMAC-SHA256 hash, never plaintext
+  enclavePinHash String?
+
+  // Enclave PIN Reset — OTP fields (10-min TTL, max 5 verify attempts)
+  enclaveOtpHash      String?
+  enclaveOtpExpiresAt DateTime?
+  enclaveOtpAttempts  Int       @default(0)
+
+  // Enclave PIN Reset — Rate Limiting & Clearance Token
+  otpSentCount          Int       @default(0)
+  otpLastSentAt         DateTime?
+  enclaveClearanceToken String?
+  enclaveClearanceTs    DateTime?
+
+  securityEvents    SecurityEvent[]
+  verificationCodes VerificationCode[]
+
+  @@index([email])
+  @@index([walletAddress])
+  @@index([username])
+}
+
+model EmailSubscriber {
+  id               String   @id @default(uuid())
+  email            String?  @unique
+  frequency        String   @default("weekly") // "daily", "weekly", "monthly"
+  subscribed       Boolean  @default(true)
+  unsubscribeToken String?  @unique
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([subscribed])
+  @@index([createdAt])
+}
+
+model WatchedWallet {
+  id            String   @id @default(uuid())
+  userId        String
+  address       String   @default("") // Normalized: 0x... or bc1... or SOL pubkey
+  label         String   @default("Anonymous Ledger")
+  tags          String[] @default([])
+  lastValue     Float    @default(0)
+  change24h     Float    @default(0)
+  pnl24h        Float    @default(0)
+  txCount       Int      @default(0)
+  riskScore     Float    @default(50)
+  activityScore Float    @default(0)
+  isLedger      Boolean  @default(false)
+  isSmart       Boolean  @default(false)
+  alertsEnabled Boolean  @default(false)
+  metadata      Json? // Stats breakdown cache
+  forensics     Json? // Forensic analysis result
+  category      String? // Exchange|Ledger|MEV|Fund etc.
+  identityTier  String? // LEGENDARY|ELITE|SOVEREIGN etc.
+  lastCheck     DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, address])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([address])
+}
+
+model AddressBookEntry {
+  id         String   @id @default(uuid())
+  authUserId String
+  name       String
+  address    String
+  ensName    String?
+  label      String?
+  notes      String?  @db.Text
+  isFavorite Boolean  @default(false)
+  chainId    Int?     @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([authUserId, address])
+  @@index([authUserId])
+  @@index([address])
+}
+
+model ChatContact {
+  id        String   @id @default(uuid())
+  owner     String
+  peer      String
+  updatedAt DateTime @updatedAt
+
+  @@unique([owner, peer])
+  @@index([owner])
+}
+
+// Instagram-style friend request system
+model ChatContactRequest {
+  id          String   @id @default(uuid())
+  fromAddress String // wallet address of requester
+  toAddress   String // wallet address of recipient
+  status      String   @default("PENDING") // PENDING | ACCEPTED | REJECTED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([fromAddress, toAddress])
+  @@index([toAddress, status])
+  @@index([fromAddress, status])
+}
+
+model PendingChatMessage {
+  id        String   @id @default(uuid())
+  sender    String
+  recipient String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([recipient])
+  @@index([sender])
+}
+
+model ExchangePosition {
+  id            String   @id @default(uuid())
+  userId        String
+  exchange      String
+  symbol        String
+  size          Float
+  entryPrice    Float
+  markPrice     Float
+  unrealizedPnl Float
+  status        String   @default("OPEN")
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [walletAddress], onDelete: Cascade)
+
+  @@index([userId, status])
+}
+
+// 
+// NODE SUBSCRIPTIONS & STRIPE
+// FIX: Missing Subscription model referenced by Stripe webhooks
+// 
+model Subscription {
+  id        String   @id @default(uuid())
+  userId    String   @unique // Maps to User.walletAddress typically
+  status    String // 'ACTIVE', 'CANCELED', 'PAST_DUE'
+  tier      String // 'LIFETIME_VIP', 'PRO_MONTHLY', etc.
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Watchlist {
+  id      String   @id @default(uuid())
+  userId  String
+  symbol  String // E.g., "BTCUSDT" or a contract address
+  chain   String   @default("multi")
+  addedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, symbol, chain])
+}
+
+model Alert {
+  id         String   @id @default(uuid())
+  userId     String
+  targetType String // "PRICE", "GAS", "LEDGER_TX", "LIQUIDATION"
+  condition  String // "ABOVE", "BELOW", "EQUALS"
+  threshold  Float
+  metric     String // e.g., "BTC", "ETH_GAS"
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CanvasState {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  nodes        Json // Institutional Node Topography
+  edges        Json // Connection Matrices
+  pan          Json? // Navigation Coordinates
+  lastSyncedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([lastSyncedAt(sort: Asc)])
+}
+
+// 
+// SIWE AUTHENTICATION NONCES
+// 
+
+model SiweNonce {
+  id        String   @id @default(uuid())
+  nonce     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+// 
+// LEDGER CHAT — CALL ROOMS
+// Ephemeral rooms for group video/audio calls with password protection.
+// Auto-expire after 2h idle. Moderator can transfer control and kick participants.
+// 
+
+model CallRoom {
+  id               String   @id @default(cuid())
+  roomId           String   @unique // 8-char alphanumeric, user-visible
+  passwordHash     String // SHA-256 of password, never stored plaintext
+  hostAddress      String // Wallet address of room creator
+  moderatorAddress String // Current moderator (starts as host, can be transferred)
+  isVideo          Boolean  @default(true)
+  maxParticipants  Int      @default(20)
+  participants     String[] // Array of wallet addresses currently in room
+  createdAt        DateTime @default(now())
+  lastActivityAt   DateTime @default(now())
+  expiresAt        DateTime // createdAt + 2h, enforced server-side
+  isActive         Boolean  @default(true)
+
+  @@index([roomId])
+  @@index([hostAddress])
+  @@index([expiresAt])
+}
+
+// 
+// CALL ROOM JOIN TOKENS
+// Signed tokens issued on successful password validation. Expire in 30min.
+// Prevents replay attacks and unauthorized joins after token expiry.
+// 
+
+model CallRoomToken {
+  id        String   @id @default(cuid())
+  roomId    String
+  address   String
+  token     String   @unique // HMAC-signed, single-use
+  used      Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([roomId, address])
+  @@index([token])
+}
+
+// 
+// CANONICAL IDENTITY (P2 SIWE MIGRATION)
+// 
+
+model HumanityIdentity {
+  id                 String    @id @default(uuid())
+  walletAddress      String    @unique
+  chainId            Int
+  walletType         String    @default("EOA") // EOA, SMART_ACCOUNT, MULTISIG
+  verificationStatus String    @default("UNVERIFIED") // UNVERIFIED, SIWE_VERIFIED, ZK_VERIFIED
+  createdAt          DateTime  @default(now())
+  lastVerifiedAt     DateTime?
+
+  permissions String[] @default([]) // e.g. "registry:write", "admin:all"
+
+  sessions HumanitySession[]
+}
+
+model HumanitySession {
+  sessionId            String    @id @default(uuid())
+  identityId           String
+  authenticationMethod String // "SIWE", "LEGACY_ADAPTER"
+  createdAt            DateTime  @default(now())
+  expiresAt            DateTime
+  revokedAt            DateTime?
+  lastSeenAt           DateTime  @default(now())
+  securityContext      Json? // { ip: "...", userAgent: "..." }
+  version              Int       @default(1)
+
+  identity HumanityIdentity @relation(fields: [identityId], references: [id], onDelete: Cascade)
+
+  @@index([identityId])
+  @@index([expiresAt])
+}
+
+// 
+// ON-CHAIN ACADEMY PROGRESSION
+// 
+
+model Course {
+  id            String   @id @default(uuid())
+  slug          String   @unique
+  title         String
+  description   String   @db.Text
+  totalDuration String
+  badge         String?
+  level         String   @default("Beginner")
+  lessons       Lesson[]
+}
+
+model Lesson {
+  id          String  @id @default(uuid())
+  courseId    String
+  title       String
+  duration    String
+  level       String
+  description String  @db.Text
+  orderIndex  Int
+  isLocked    Boolean @default(false)
+
+  course      Course              @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  progress    UserProgress[]
+  submissions AcademySubmission[]
+}
+
+model UserProgress {
+  id        String   @id @default(uuid())
+  userId    String
+  lessonId  String
+  completed Boolean  @default(true)
+  timestamp DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+}
+
+// 
+// ACADEMY MENTORING & TEACHER VALIDATIONS (MAXIMUM LMS)
+// 
+
+model AcademySubmission {
+  id          String   @id @default(uuid())
+  userId      String
+  lessonId    String
+  contentUrl  String?
+  txHash      String?
+  status      String   @default("PENDING") // PENDING, PASSED, FAILED
+  feedback    String?  @db.Text
+  submittedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@index([userId, lessonId])
+  @@index([status])
+}
+
+model MentoringMessage {
+  id         String   @id @default(uuid())
+  senderId   String
+  receiverId String
+  content    String   @db.Text
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  sender   User @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([receiverId, read])
+}
+
+// 
+// GOLDEN TICKET CLAIM
+// 
+
+model GoldenTicket {
+  id                    String   @id @default(uuid())
+  userAddress           String   @unique
+  serialCode            String   @unique
+  tier                  String   @default("GENESIS")
+  badgeColor            String   @default("GOLD")
+  networkLaunchEligible Boolean  @default(true)
+  ticketNumber          Int      @default(autoincrement())
+  twitterHandle         String?
+  signatureData         String?  @db.Text
+  isActive              Boolean  @default(true)
+  claimedAt             DateTime @default(now())
+  updatedAt             DateTime @default(now()) @updatedAt
+
+  // Compound indexes for dashboard query patterns:
+  // /api/golden-ticket GET: WHERE isActive=true ORDER BY claimedAt DESC TAKE 30
+  // /api/akashic hash verification: WHERE userAddress
+  @@index([isActive, claimedAt(sort: Desc)])
+  @@index([tier, claimedAt(sort: Desc)])
+  @@index([ticketNumber])
+}
+
+// 
+// SOVEREIGN INTELLIGENCE CORPUS (ARKHAM/NANSEN KILLER)
+// 
+
+model IntelItem {
+  id          String   @id @default(uuid())
+  url         String   @unique
+  title       String
+  source      String
+  aiSummary   String?  @db.Text
+  category    String   @default("FINANCE")
+  priority    String   @default("SOVEREIGN")
+  publishedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([publishedAt(sort: Desc)])
+  @@index([category, publishedAt(sort: Desc)])
+}
+
+model NewsArticle {
+  id          String   @id @default(uuid())
+  externalId  String?  @unique
+  title       String
+  summary     String   @db.Text
+  url         String   @unique
+  source      String
+  imageUrl    String?
+  category    String   @default("crypto")
+  publishedAt DateTime @default(now())
+
+  // Forensic Analysis
+  veracityScore    Int     @default(0)
+  veracityAnalysis String? @db.Text
+  isFake           Boolean @default(false)
+  sentiment        String  @default("neutral") // bullish, bearish, neutral
+
+  tokens String[] @default([]) // Referenced in UI
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([publishedAt(sort: Desc)])
+  @@index([source])
+}
+
+model OnChainEntity {
+  id             String   @id @default(uuid())
+  address        String   @unique
+  label          String? // The identity of the entity
+  category       String? // Exchange, Ledger, MEV, Fund
+  isZkShielded   Boolean  @default(false)
+  neo4jNodeId    String?  @unique // Reference to local graph DB node
+  totalVolumeUSD Float    @default(0.0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  lastActive     DateTime @default(now())
+
+  labels EntityLabel[]
+}
+
+model EntityLabel {
+  id              String   @id @default(uuid())
+  entityId        String
+  labelName       String
+  confidenceScore Float    @default(1.0)
+  source          String // "NeuralAgent", "UserDefined", "TeranodeStream"
+  createdAt       DateTime @default(now())
+
+  entity OnChainEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+}
+
+model NeuralAgentConfig {
+  id                 String   @id @default(uuid())
+  agentId            String   @unique
+  mode               String   @default("OBSERVER") // OBSERVER, EXECUTION, HFT
+  maxSlippage        Float    @default(0.5)
+  targetChains       String[] // E.g., ["Ethereum", "Solana", "EVM"]
+  isActive           Boolean  @default(true)
+  autoTradeThreshold Float?
+  lastPingAt         DateTime @default(now())
+}
+
+// 
+// SOBERANIA DE CUSTODIA (ON-CHAIN CONTRACT STATES)
+// 
+
+model TimeLockVault {
+  id          String   @id @default(uuid())
+  userAddress String   @unique
+  amount      Float
+  unlockDate  DateTime
+  txHash      String?
+  status      String   @default("LOCKED") // "LOCKED", "WITHDRAWN"
+  createdAt   DateTime @default(now())
+}
+
+model DeadMansSwitch {
+  id               String   @id @default(uuid())
+  userAddress      String   @unique
+  beneficiary      String
+  inactivityPeriod Int // En segundos
+  lastPing         DateTime @default(now())
+  active           Boolean  @default(true)
+  txHash           String?
+}
+
+model Guardian {
+  id              String  @id @default(uuid())
+  userEmail       String
+  guardianAddress String
+  threshold       Int     @default(3) // Firmas requeridas
+  isActive        Boolean @default(true)
+
+  @@unique([userEmail, guardianAddress])
+}
+
+model PrivacyDonation {
+  id         String   @id @default(uuid())
+  amount     Float
+  nullifier  String   @unique
+  commitment String   @unique
+  timestamp  DateTime @default(now())
+}
+
+// 
+// LEDGER TELEMETRY & ACTIVITY
+// 
+
+model LedgerActivity {
+  id              String   @id @default(uuid())
+  immutableId     String?  @unique(map: "sov_ledger_identity_idx_v3") // Reconciliación institucional de índice
+  walletAddress   String? // Opcional para BTC (usar toAddress)
+  type            String   @default("TRANSFER") // 'TRANSFER', 'SWAP', 'MINT', 'BURN'
+  token           String   @default("BTC")
+  amount          String   @default("0")
+  usdValue        String   @default("0")
+  valueBTC        Float    @default(0) // Valor real en satoshis/btc
+  btcPriceAtTx    Float    @default(0) // Precio histórico capturado
+  fromAddress     String
+  toAddress       String
+  transactionHash String   @unique
+  blockNumber     BigInt?
+  blockHeight     Int? // Altura del bloque BTC
+  chain           String   @default("BTC")
+  entityName      String   @default("Unknown") // MicroStrategy, BlackRock, etc.
+  institutional   Boolean  @default(false)
+  confirmed       Boolean  @default(true)
+  metadata        Json?
+  timestamp       DateTime @default(now())
+  isZkVerified    Boolean  @default(false)
+
+  //   INDEXACIÓN INSTITUCIONAL
+  @@index([usdValue])
+  @@index([valueBTC])
+  @@index([timestamp(sort: Desc)])
+  @@index([institutional])
+  @@index([entityName])
+  @@index([chain, timestamp(sort: Desc)])
+  //   INDEXACIÓN COMPUESTA (query patterns de /api/akashic y /api/institutional)
+  // Pattern 1: Akashic feed  filtrar por chain, ordenar por timestamp, paginar
+  @@index([chain, timestamp(sort: Desc), usdValue])
+  // Pattern 2: Dashboard institucional  movimientos >$1M clasificados como institucionales
+  @@index([institutional, usdValue, timestamp(sort: Desc)])
+  // Pattern 3: Análisis por token  ej. todos los movimientos de USDC en Ethereum
+  @@index([token, chain, timestamp(sort: Desc)])
+  // Pattern 4: Búsqueda por dirección (from/to wallet lookup)
+  @@index([fromAddress, timestamp(sort: Desc)])
+  @@index([toAddress, timestamp(sort: Desc)])
+}
+
+// 
+// BITCOIN SV (BSV) BRC STANDARDS INDEX
+// 
+
+model BRCStandard {
+  id         String    @id @default(uuid())
+  brcNumber  Int       @unique
+  title      String
+  author     String    @default("Unknown")
+  status     String    @default("Draft")
+  type       String    @default("Standard")
+  created    DateTime?
+  updated    DateTime?
+  summary    String?   @db.Text
+  content    String?   @db.Text
+  githubUrl  String?
+  lastSyncAt DateTime  @default(now())
+}
+
+// 
+// TELEGRAM ALERTS
+// Referenced by: /api/telegram/connect, /api/cron/*, webhook handlers
+// 
+
+model TelegramAlert {
+  id            String   @id @default(uuid())
+  walletAddress String   @unique
+  chatId        String
+  minApy        Float    @default(20)
+  evSignals     Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([walletAddress])
+}
+
+model SecurityEvent {
+  id         String   @id @default(uuid())
+  authUserId String?
+  type       String
+  severity   String   @default("INFO")
+  details    String?  @db.Text
+  ipAddress  String?
+  userAgent  String?
+  location   String?
+  timestamp  DateTime @default(now())
+
+  authUser AuthUser? @relation(fields: [authUserId], references: [id], onDelete: Cascade)
+}
+
+model Transaction {
+  id           String   @id @default(uuid())
+  txHash       String   @unique
+  status       String   @default("PENDING")
+  type         String // SEND, RECEIVE, REBALANCE
+  amount       Float
+  token        String
+  fromAddress  String
+  toAddress    String
+  timestamp    DateTime @default(now())
+  identityHash String? // ZK Proof derived hash of identity (Zero-Knowledge Data Isolation)
+
+  chainId     Int     @default(1)
+  value       String?
+  tokenSymbol String?
+  blockNumber BigInt? @default(0)
+  gasUsed     BigInt? @default(0)
+  metadata    Json?   @default("{}")
+
+  @@index([identityHash])
+  // [INSTITUTIONAL OPTIMIZATION] - Previene ataque DDoS (Sequential Scan) en el endpoint /api/payment/confirm
+  @@index([fromAddress, type, timestamp(sort: Desc)])
+}
+
+model SocialRecovery {
+  id         String  @id @default(uuid())
+  userEmail  String  @unique
+  threshold  Int     @default(3)
+  delayHours Int     @default(48)
+  active     Boolean @default(true)
+}
+
+model AIRebalancerPlan {
+  id          String    @id @default(uuid())
+  userId      String
+  strategy    String
+  payload     Json
+  executed    Boolean   @default(false)
+  executedAt  DateTime?
+  txHashes    String[]
+  expectedPnl Float?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model GlobalLedgerEvent {
+  id        String   @id @default(uuid())
+  txHash    String   @unique
+  amountUSD Float
+  protocol  String
+  timestamp DateTime @default(now())
+
+  //   INDEXACIÓN CÓSMICA: Eventos Macro para pantalla de liderazgo institucional
+  @@index([protocol, timestamp(sort: Desc)]) // Filtrado por protocolo en tiempo real
+  @@index([amountUSD(sort: Desc)]) // Ranking de mayores transacciones
+  @@index([timestamp(sort: Desc)]) // Vista cronológica global
+}
+
+model AlertRule {
+  id        String  @id @default(uuid())
+  userId    String
+  condition String
+  threshold Float
+  isActive  Boolean @default(true)
+}
+
+// 
+// OPERATIONAL AUDIT TRAIL (system action log)
+// 
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String // WATCH_WALLET_ADDED | WATCH_WALLET_DELETED | SETTINGS_UPDATED etc.
+  resource  String? // Table/resource name
+  metadata  Json?
+  ipAddress String?
+  timestamp DateTime @default(now())
+
+  @@index([userId, timestamp(sort: Desc)])
+  @@index([action, timestamp(sort: Desc)])
+}
+
+// 
+// SOVEREIGN CRYPTOGRAPHIC AUDIT TRAIL
+// Immutable HMAC-SHA256 chained event log for ENISA / eIDAS 2.0 compliance.
+// Each entry's HMAC includes the previous entry's payloadHash (hash chain).
+// Any deletion or modification of entries is cryptographically detectable.
+// This table must have INSERT-ONLY permissions at the DB role level.
+// Verification: lib/audit/audit-trail.ts  verifyAuditTrailIntegrity()
+// 
+
+model SystemAuditLog {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  // Event classification
+  event       String // AuditEventType  see lib/audit/audit-trail.ts
+  actor       String // Wallet address (0x...) or system identifier
+  ip          String
+  metadata    String   @db.Text // JSON-serialized, included in payloadHash
+  // Cryptographic chain fields
+  payloadHash String   @unique // SHA-256(timestamp+event+actor+ip+metadata)
+  hmacSig     String // HMAC-SHA256(payloadHash:prevHash, AUDIT_SECRET)
+  prevHash    String // payloadHash of the previous entry, or 'GENESIS'
+
+  @@index([event, createdAt(sort: Desc)])
+  @@index([actor, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@map("system_audit_log")
+}
+
+// 
+// STRIPE PURCHASE INTENT (anti-chargeback evidence)
+// 
+
+model ApiPurchaseIntent {
+  id              String   @id @default(uuid())
+  userId          String // System wallet address (SIWE identity)
+  planId          String
+  stripeSessionId String   @unique
+  ip              String?
+  country         String?
+  userAgent       String?  @db.Text
+  isSuspiciousIp  Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model KYCRecord {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  status       String // 'PENDING', 'APPROVED', 'REJECTED'
+  applicantId  String?
+  documentType String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model BlockchainTransaction {
+  id          String   @id @default(uuid())
+  txHash      String   @unique
+  userId      String? // Relates to User.walletAddress or AuthUser.id
+  blockNumber Int
+  status      String
+  type        String   @default("SWAP")
+  fromChain   String?
+  toChain     String?
+  fromToken   String?
+  toToken     String?
+  fromAmount  String?
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  //   INDEXACIÓN CÓSMICA: Estado de transacciones para reconciliación ultra-rápida
+  @@index([userId]) // Lookup de historial por usuario
+  @@index([status, createdAt(sort: Desc)]) // Monitoreo de pendientes en tiempo real
+  @@index([blockNumber(sort: Desc)]) // Lookup por bloque
+}
+
+// FIX: Session polyfill for JWT verification route fallback
+model Session {
+  id           String   @id @default(uuid())
+  sessionToken String   @unique
+  userId       String
+  expiresAt    DateTime
+  ipAddress    String?
+  createdAt    DateTime @default(now())
+}
+
+// 
+// SOVEREIGN WALLET & EXCHANGE STATE
+// 
+
+model ExchangeBalance {
+  id        String   @id @default(uuid())
+  userId    String
+  asset     String
+  free      Float    @default(0.0)
+  locked    Float    @default(0.0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, asset])
+}
+
+// 
+// SYSTEM TELEMETRY
+// 
+
+model Log {
+  id        String   @id @default(uuid())
+  level     String   @default("info")
+  message   String
+  source    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt(sort: Desc)])
+}
+
+// 
+// PRIVACY & SESSION AUDITING LOGS
+// 
+
+// Removed: UserSessionLog (Telemetry / Analytics)
+
+model UserPrivacyProfile {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  logLevel          String   @default("MEDIUM")
+  dataSharing       Boolean  @default(true)
+  sessionAutoLogout String   @default("1h")
+  ipWhitelist       String[] @default([])
+  twoFAEnabled      Boolean  @default(false)
+  systemVisibility  String   @default("Public")
+  exportEncryption  Boolean  @default(false)
+  updatedAt         DateTime @updatedAt
+  createdAt         DateTime @default(now())
+}
+
+// 
+// AKASHIC COSMIC FORGE
+// 
+
+model CosmicEntity {
+  id                String   @id @default(uuid())
+  seedHash          String   @unique // SHA-256 del evento ledger origen
+  ledgerEventId     String? // FK a GlobalLedgerEvent
+  tier              String // NARWHAL | KRAKEN | LEVIATHAN | MEGALODON
+  amountUSD         Float
+  chain             String
+  generatorType     String // COSMIC_ART | LIVING_MUSIC | AUTO_CONTRACT | WORLD_SIM | BIOTECH_DNA | HIVE_AGENT | RECURSIVE_SUBFORGE
+  status            String   @default("DORMANT") // DORMANT | ACTIVE | HIBERNATING | EXTINCT | MERGED
+  artMetadata       Json? // { prompt, style, colorSeed, shaderParams }
+  musicMetadata     Json? // { bpm, scale, waveform, key }
+  biotechMetadata   Json? // { dnaSequence, traits }
+  worldSimMetadata  Json? // { populationSeed, resources, entropy, gridSize }
+  agentMetadata     Json? // { observerMode, targetChains, maxSlippageThreshold }
+  contractAddress   String? // Solo si se deployó un CosmicSoulERC1155
+  hiveEnergyAtBirth Float    @default(0)
+  evolutionCount    Int      @default(0)
+  parentEntityId    String? // Para sub-forges recursivos
+  beneficiaryAddr   String? // Dead Man's Switch legado
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([tier, amountUSD(sort: Desc)])
+  @@index([chain, createdAt(sort: Desc)])
+}
+
+// 
+// FINTECH & GAMIFICATION (Unleashed Models)
+// 
+
+model VirtualCard {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  cardNumber  String   @unique // Encrypted or masked
+  expiryMonth Int
+  expiryYear  Int
+  cvv         String // Encrypted
+  cardStatus  String   @default("ACTIVE") // ACTIVE, FROZEN, REVOKED
+  balance     Float    @default(0)
+  kycStatus   String   @default("PENDING") // PENDING, VERIFIED, FAILED
+  providerId  String? // e.g. Striga/Stripe issuing ID
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model GamificationRecord {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  totalXp       Int      @default(0)
+  level         Int      @default(1)
+  currentTier   String   @default("INITIATE")
+  achievements  String[] @default([])
+  lastEventDate DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// 
+// SOVEREIGN FORUM
+// 
+
+model ForumCategory {
+  id          String       @id @default(uuid())
+  slug        String       @unique
+  name        String
+  description String?      @db.Text
+  color       String       @default("#888888")
+  orderIndex  Int          @default(0)
+  topics      ForumTopic[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model ForumTag {
+  id     String       @id @default(uuid())
+  name   String       @unique
+  topics ForumTopic[] @relation("TopicTags")
+}
+
+model ForumTopic {
+  id         String  @id @default(uuid())
+  title      String
+  content    String  @db.Text
+  categoryId String
+  authorId   String
+  views      Int     @default(0)
+  isPinned   Boolean @default(false)
+  isLocked   Boolean @default(false)
+
+  category      ForumCategory       @relation(fields: [categoryId], references: [id])
+  author        User                @relation(fields: [authorId], references: [id])
+  posts         ForumPost[]
+  tags          ForumTag[]          @relation("TopicTags")
+  likes         ForumLike[]
+  notifications ForumNotification[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([categoryId, createdAt(sort: Desc)])
+  @@index([authorId, createdAt(sort: Desc)])
+}
+
+model ForumPost {
+  id         String  @id @default(uuid())
+  content    String  @db.Text
+  topicId    String
+  authorId   String
+  replyToId  String? // Optional: if replying to a specific post
+  isSolution Boolean @default(false)
+
+  topic         ForumTopic          @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  author        User                @relation(fields: [authorId], references: [id])
+  replyTo       ForumPost?          @relation("Replies", fields: [replyToId], references: [id], onDelete: Cascade)
+  replies       ForumPost[]         @relation("Replies")
+  likes         ForumLike[]
+  notifications ForumNotification[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([topicId, createdAt(sort: Asc)])
+}
+
+model ForumLike {
+  id      String  @id @default(uuid())
+  userId  String
+  topicId String?
+  postId  String?
+
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic ForumTopic? @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  post  ForumPost?  @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, topicId])
+  @@unique([userId, postId])
+}
+
+model ForumNotification {
+  id      String  @id @default(uuid())
+  userId  String
+  type    String // "REPLY", "MENTION", "LIKE"
+  actorId String // Who triggered it
+  topicId String?
+  postId  String?
+  isRead  Boolean @default(false)
+
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  actor User        @relation("ActorNotifications", fields: [actorId], references: [id], onDelete: Cascade)
+  topic ForumTopic? @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  post  ForumPost?  @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead, createdAt(sort: Desc)])
+}
+
+model ForumTelemetry {
+  id        String   @id @default(uuid())
+  userId    String? // Optional: anonymous users can be tracked
+  action    String // E.g., "VIEW_TOPIC", "DRAFT_POST", "CLICK_LIKE"
+  ipAddress String?
+  userAgent String?
+  metadata  Json? // Detailed payload (topicId, durationMs, etc)
+  createdAt DateTime @default(now())
+
+  @@index([action, createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+// 
+// PHASE 3: PRODUCT VALIDATION & TELEMETRY (GDPR COMPLIANT)
+// 
+
+model BetaTelemetry {
+  id          String   @id @default(uuid())
+  metricType  String // e.g., 'HANDSHAKE_LATENCY', 'LEDGER_DETECTION_LATENCY', 'WS_UPTIME'
+  value       Float // Numeric value of the metric (e.g., milliseconds or percentage)
+  p95         Float? // Pre-calculated P95 for aggregated flushes
+  sampleSize  Int // Number of events aggregated in this record
+  timestamp   DateTime @default(now())
+  environment String   @default("production") // e.g., 'staging', 'production'
+
+  @@index([metricType, timestamp])
+}
+
+model NPSSurvey {
+  id            String   @id @default(uuid())
+  walletAddress String   @unique // The address of the beta tester. One survey per wallet.
+  score         Int // 0-10 NPS score
+  feedback      String?  @db.Text
+  signature     String // EIP-191 signature of the score and feedback (preventing forgery)
+  timestamp     DateTime @default(now())
+}
+
+// 
+// AUTH: EMAIL VERIFICATION CODES
+// Used by /api/auth/signup, /api/auth/verify, /api/auth/verify-code
+// 
+
+model VerificationCode {
+  id        String   @id @default(uuid())
+  code      String
+  userId    String
+  used      Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user AuthUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, used, expiresAt])
+  @@index([code])
+}
+
+// 
+// ON-CHAIN INTELLIGENCE CACHE
+// Used by /api/premium/watched-wallets GET (global analytics merge)
+// 
+
+model WalletAnalytics {
+  id        String   @id @default(uuid())
+  address   String   @unique
+  forensics Json? // Risk signals, entity labels, etc.
+  category  String? // 'EXCHANGE', 'LEDGER', 'DEFI', 'UNKNOWN'
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@index([address])
+  @@index([category])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String?
+  title     String
+  message   String   @db.Text
+  type      String   @default("system")
+  isGlobal  Boolean  @default(false)
+  actionUrl String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isGlobal])
+  @@index([createdAt(sort: Desc)])
+}
+
+// 
+// HUMANITY PROVENANCE FRAMEWORK — Product passports (public read, optional on-chain anchor)
+// 
+
+model ProductPassport {
+  id            String            @id @default(cuid())
+  publicSlug    String            @unique
+  title         String
+  category      String?
+  issuerAddress String?
+  payload       Json
+  coreEntropy   String?
+  txHash        String?
+  chainId       Int?
+  gs1Gtin       String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  events        ProvenanceEvent[]
+
+  @@index([issuerAddress])
+  @@index([gs1Gtin])
+  @@index([createdAt(sort: Desc)])
+}
+
+model ProvenanceEvent {
+  id         String          @id @default(cuid())
+  passportId String
+  passport   ProductPassport @relation(fields: [passportId], references: [id], onDelete: Cascade)
+  eventType  String
+  payload    Json
+  createdAt  DateTime        @default(now())
+
+  @@index([passportId, createdAt(sort: Desc)])
+}
+
+//
+// HUMANITY LEDGER — GLOBAL LOGIN INTELLIGENCE MAP
+// Records every authenticated session with geo context (GDPR: IP hashed, no PII stored)
+// Powers the /registry map — our live global activity intelligence layer.
+//
+
+// Removed: login_geo_events
+
+// 
+// QUANTUM PIPELINE & ZERO-KNOWLEDGE STATE
+// Stores spent nullifiers to prevent ZK replay attacks.
+// 
+
+model ZkNullifier {
+  id            String   @id @default(uuid())
+  nullifierHash String   @unique
+  proofId       String?
+  spentAt       DateTime @default(now())
+
+  @@index([nullifierHash])
+}
+
+// 
+// SOVEREIGN GOVERNANCE & PROVER NETWORK (AZIP)
+// 
+
+model MarketProposal {
+  id              String    @id @default(uuid())
+  question        String
+  description     String    @db.Text
+  outcomes        String[]  @default(["FOR", "AGAINST", "ABSTAIN"])
+  category        String    @default("CORE")
+  creatorAddress  String
+  status          String    @default("VOTING") // VOTING, APPROVED, REJECTED, EXECUTED
+  votesFor        Int       @default(0)
+  votesAgainst    Int       @default(0)
+  votingThreshold Int       @default(100) // Minimum votes required to pass
+  votingEndsAt    DateTime
+  approvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  votes ProposalVote[]
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([category])
+}
+
+model ProposalVote {
+  id                String   @id @default(uuid())
+  proposalId        String
+  voterAddress      String
+  vote              String // FOR, AGAINST, ABSTAIN
+  nullifierHash     String   @unique // Cryptographic proof against double voting
+  merkleRoot        String
+  proof             String   @db.Text
+  verificationLevel String
+  votedAt           DateTime @default(now())
+
+  proposal MarketProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@unique([proposalId, nullifierHash])
+  @@index([proposalId, vote])
+  @@index([voterAddress, votedAt(sort: Desc)])
+}
+
+model UserMetrics {
+  id            String   @id @default(uuid())
+  userAddress   String   @unique
+  votescast     Int      @default(0)
+  proposalsMade Int      @default(0)
+  reputation    Float    @default(1.0)
+  lastActiveAt  DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([votescast(sort: Desc)])
+}
+
+// 
+// AZTEC QUests & REWARDS ENGINE
+// Tracking social interactions, IP-based indexation, and slashing logic
+// 
+
+model AztecQuest {
+  id          String   @id @default(uuid())
+  slug        String   @unique // twitter-follow, youtube-follow, tg-join, page-share
+  title       String
+  description String   @db.Text
+  qdReward    Float
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  claims QuestClaim[]
+}
+
+model QuestClaim {
+  id           String    @id @default(uuid())
+  questId      String
+  identityHash String    @default("") // ZK Proof derived hash of identity (Zero-Knowledge Data Isolation)
+  ipHash       String    @default("") // SHA-256(ip) to prevent multi-account farming
+  status       String    @default("CLAIMED") // CLAIMED, SLASHED
+  claimedAt    DateTime  @default(now())
+  slashedAt    DateTime?
+
+  quest AztecQuest @relation(fields: [questId], references: [id], onDelete: Cascade)
+
+  @@unique([questId, identityHash])
+  @@unique([questId, ipHash]) // IP can only claim a specific quest once
+  @@index([identityHash, status])
+}
+
+// 
+// AIRDROP CALENDAR & QD TRANSACTIONS
+// Tracking 1st-of-month airdrops and QD spending history
+// 
+
+// duplicate AirdropClaim removed
+
+model QdTransaction {
+  id           String   @id @default(uuid())
+  aztecAddress String // The L2 Identity address spending/receiving QDs
+  type         String // "EARN", "SPEND", "SLASH", "STAKE", "UNSTAKE", "FEE", "REWARD"
+  amount       Float
+  description  String   @db.Text
+  txHash       String? // Optional L2 Tx hash if executed on-chain
+  createdAt    DateTime @default(now())
+
+  @@index([aztecAddress, createdAt(sort: Desc)])
+  @@index([type])
+}
+
+//
+// SOVEREIGN NODE — QD Staking for Proof-of-Sovereignty
+// Users lock QDs for N days to earn Sovereign Node status and yield
+//
+model SovereignNode {
+  id             String   @id @default(uuid())
+  aztecAddress   String   @unique
+  identityHash   String
+  tier           String // BRONZE, SILVER, GOLD
+  stakedAmount   Float
+  lockedAt       DateTime @default(now())
+  unlockAt       DateTime
+  lastYieldAt    DateTime @default(now())
+  active         Boolean  @default(true)
+  totalYieldPaid Float    @default(0)
+
+  @@index([aztecAddress, active])
+  @@index([identityHash])
+}
+
+// 
+// SOCIAL VERIFICATION & PENALTIES
+// 
+model SocialVerification {
+  id             String   @id @default(uuid())
+  walletAddress  String   @unique
+  twitterId      String?
+  twitterFollow  Boolean  @default(false)
+  youtubeId      String?
+  youtubeFollow  Boolean  @default(false)
+  telegramId     String?
+  telegramFollow Boolean  @default(false)
+  lastVerifiedAt DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([walletAddress])
+}
+
+// 
+// AIRDROP CALENDAR 2100 & ANTI-SYBIL
+// 
+model AirdropClaim {
+  id            String   @id @default(uuid())
+  walletAddress String
+  year          Int
+  month         Int
+  amount        Float    @default(10.0)
+  txHash        String?  @unique
+  claimedAt     DateTime @default(now())
+
+  // Ensure one claim per wallet per month/year
+  @@unique([walletAddress, year, month])
+  @@index([walletAddress])
+}
+
+model ModerationReport {
+  id              String   @id @default(uuid())
+  reporterAddress String
+  messageHash     String
+  timestamp       DateTime @default(now())
+  status          String   @default("PENDING")
+}
+
+// 
+// LEDGER CHAT SETTINGS ENGINE - Abysmally complex backend integration
+// 
+model UserSettings {
+  id            String   @id @default(uuid())
+  walletAddress String   @unique
+  settings      Json
+  lastSyncedAt  DateTime @default(now())
+
+  @@index([walletAddress])
+}
+
+// ─── COMMUNITIES & STATUS UPDATES ──────────────────────────────────────────
+
+model StatusUpdate {
+  id           String   @id @default(cuid())
+  ownerAddress String
+  text         String
+  emoji        String?
+  privacy      String   @default("contacts") // "everyone", "contacts", "except"
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  @@index([ownerAddress])
+  @@index([expiresAt])
+}
+
+model Community {
+  id           String   @id @default(cuid())
+  name         String
+  description  String
+  isPrivate    Boolean  @default(false)
+  ownerAddress String
+  joinCode     String   @unique
+  createdAt    DateTime @default(now())
+  // R-17 (MLS_MIGRATION.md): when true, all channels in this community use
+  // XMTP MLS groups (xmtpGroupId on each CommunityChannel). The post endpoint
+  // returns 410 for migrated communities; content is not stored on this server.
+  communityMls Boolean  @default(false)
+
+  members     CommunityMember[]
+  channels    CommunityChannel[]
+  permissions CommunityPermission?
+  apps        CommunityApp[]
+  // messages CommunityMessage[]
+
+  @@index([joinCode])
+  @@index([ownerAddress])
+}
+
+// Community apps: small tools a community runs inside its own space (a poll,
+// a sign-up sheet, a shared list). Each app is one HTML document served from
+// /api/chat/communities/[id]/apps/[appId]/frame into a sandboxed iframe with
+// no network access. Its only memory is CommunityAppEntry, through the bridge
+// in lib/community-apps/sdk.ts. Both tables are readable by the server: the
+// interface says so.
+model CommunityApp {
+  id             String   @id @default(cuid())
+  communityId    String
+  creatorAddress String
+  title          String
+  summary        String   @default("")
+  prompt         String   @default("") @db.Text
+  html           String   @db.Text
+  status         String   @default("draft") // draft | published
+  version        Int      @default(1)
+  source         String   @default("model") // model | template
+  templateId     String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  community Community           @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  entries   CommunityAppEntry[]
+
+  @@index([communityId, status])
+  @@index([creatorAddress])
+}
+
+// scope is "shared" (any member may write) or a member's lowercase address
+// (only that member may write). A null value is a deletion; rows are kept as
+// tombstones so a client that syncs with ?since= also learns about deletions.
+model CommunityAppEntry {
+  id        String   @id @default(cuid())
+  appId     String
+  scope     String
+  key       String
+  value     Json?
+  updatedBy String // lowercase address of the last writer, set by the server
+  updatedAt DateTime @updatedAt
+
+  app CommunityApp @relation(fields: [appId], references: [id], onDelete: Cascade)
+
+  @@unique([appId, scope, key])
+  @@index([appId, updatedAt])
+}
+
+model CommunityMember {
+  id            String   @id @default(cuid())
+  communityId   String
+  walletAddress String
+  role          String   @default("MEMBER") // ADMIN, MEMBER
+  joinedAt      DateTime @default(now())
+
+  community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, walletAddress])
+  @@index([walletAddress])
+}
+
+// Removed: CommunityMessage (Centralized Storage)
+
+model QDCreditLedger {
+  id             String   @id @default(uuid())
+  address        String
+  delta          Float
+  direction      String
+  reason         String
+  counterparty   String?
+  txRef          String   @unique
+  idempotencyKey String   @unique
+  rail           String   @default("internal")
+  createdAt      DateTime @default(now())
+
+  @@index([address])
+  @@index([txRef])
+}
+
+// DECENTRALIZED FEDERATION RELAY
+// This model acts as a temporary store-and-forward relay node for MLS Group 
+// messages. In E2E groups, peers may be offline. This node stores the encrypted
+// ciphertext of the message, but NO PLAINTEXT is visible to the server.
+model CommunityPost {
+  id            String   @id @default(cuid())
+  communityId   String
+  channelId     String?
+  authorAddress String
+  content       String // READABLE BY THE SERVER today (not encrypted). Migration: docs/communities/MLS_MIGRATION.md
+  title         String?
+  contentHtml   String? // READABLE BY THE SERVER today (not encrypted)
+  likes         Int      @default(0)
+  createdAt     DateTime @default(now())
+  // Set only when a person chooses Pin (PATCH /api/chat/communities, PIN_MESSAGE). Sending never sets it.
+  // Unpin clears both; the post itself stays.
+  pinnedAt      DateTime?
+  pinnedBy      String?
+
+  @@index([communityId])
+  @@index([authorAddress])
+  @@index([communityId, createdAt])
+  @@index([communityId, pinnedAt])
+}
+
+// Login Geo Events - GDPR compliant (no raw IP, only hashed + country)
+model LoginGeoEvent {
+  id            String   @id @default(uuid())
+  userId        String?
+  ipHash        String
+  countryCode   String   @default("XX")
+  countryName   String   @default("Unknown")
+  region        String?
+  city          String?
+  latitude      Float?
+  longitude     Float?
+  asn           String?
+  sessionType   String   @default("UNKNOWN")
+  authMethod    String   @default("UNKNOWN")
+  deviceType    String?
+  wasSuccessful Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
+  @@index([countryCode])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// COMMUNITIES (Feature #3 — Ledger Chat's core differentiator)
+
+model CommunityChannel {
+  id          String   @id @default(cuid())
+  communityId String
+  name        String
+  description String?
+  isPaid      Boolean  @default(false)
+  price       Float?
+  currency    String? // 'ETH', 'USDC'
+  position    Int      @default(0)
+  createdAt   DateTime @default(now())
+  // R-17 (MLS_MIGRATION.md): XMTP MLS group ID for this channel.
+  // Null until the community enables the COMMUNITY_MLS flag and the channel
+  // owner creates the group via lib/xmtp/groups.ts createSecureGroup().
+  // Once set, posts are stored by XMTP and this server stores only metadata.
+  xmtpGroupId String?
+
+  community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@index([communityId])
+  @@index([xmtpGroupId])
+}
+
+model CommunityPermission {
+  id              String  @id @default(cuid())
+  communityId     String  @unique
+  sendMessages    Boolean @default(true)
+  sendMedia       Boolean @default(true)
+  sendStickers    Boolean @default(true)
+  sendPolls       Boolean @default(true)
+  embedLinks      Boolean @default(true)
+  addUsers        Boolean @default(false)
+  pinMessages     Boolean @default(false)
+  changeInfo      Boolean @default(false)
+  slowModeSeconds Int     @default(0)
+  antiSpam        Boolean @default(false)
+  requireApproval Boolean @default(false)
+  postApproval    Boolean @default(false)
+  notifyNewMember Boolean @default(true)
+
+  community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+}
+
+model PushSubscription {
+  id            String   @id @default(uuid())
+  walletAddress String   @unique
+  endpoint      String   @db.Text
+  p256dh        String
+  auth          String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([walletAddress])
+}
+
+model DirectMessage {
+  id          String    @id @default(uuid())
+  sender      String
+  recipient   String
+  content     String    @db.Text
+  delivered   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  deliveredAt DateTime?
+
+  @@index([recipient, delivered])
+  @@index([sender])
+  @@index([recipient, createdAt])
+  @@index([sender, createdAt])
+}
+
+model Story {
+  id            String   @id @default(cuid())
+  authorAddress String
+  contentUrl    String   @db.Text
+  mediaType     String
+  /// Lowercase 0x addresses allowed to see this status. Empty = every contact who saved the author.
+  audience      String[] @default([])
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  @@index([authorAddress])
+  @@index([expiresAt])
+}
+
+/// Ciphertext of a photo or video Status when no R2 bucket is configured (lib/chat/status-media.ts).
+/// The key is in the Story record, so the server can read it: Status is not end-to-end encrypted.
+model StatusMedia {
+  id            String   @id
+  authorAddress String
+  bytes         Bytes
+  size          Int
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  @@index([authorAddress])
+  @@index([expiresAt])
+}
+
+/// Passkey records of the private wallet (lib/aztec/wallet/passkey.ts). `record` is the JSON of a
+/// PasskeyRecord: credential id, PRF salt, IV and the AES-GCM ciphertext of the account root. The
+/// server cannot open it: the key is the passkey's PRF output, which only the authenticator yields.
+model AztecPasskeyRecord {
+  id            String   @id @default(uuid())
+  walletAddress String
+  network       String
+  credentialId  String   @unique
+  record        String   @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([walletAddress, network])
+}
+
+// Ledger Chat usernames (lib/chat/usernames.ts). One per account, unique in the world:
+// `username` is the canonical lowercase form under a unique index, so two accounts can never
+// hold the same name. `linkToken` is the random part of the profile link and its QR code.
+model ChatUsername {
+  walletAddress String   @id
+  username      String   @unique
+  linkToken     String   @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+/// Closed alpha, wave 1 (master prompt Phase 2; OD-4). Only the HMAC of a code is stored
+/// (ALPHA_INVITE_PEPPER). No IP, user agent or other tracking data.
+model AlphaInvite {
+  id         String    @id @default(cuid())
+  codeHash   String    @unique
+  createdBy  String
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime?
+  redeemedBy String?   @unique
+  redeemedAt DateTime?
+  revokedAt  DateTime?
+  /// Operator checks before the code (package 4): EU consolidated sanctions list and age. Only
+  /// the result is stored, never an identity document. Deleted at retainUntil (scripts/alpha/purge.mjs).
+  sanctionsCheckedAt DateTime?
+  sanctionsListDate  String?
+  sanctionsResult    String?
+  adultCheckedAt     DateTime?
+  retainUntil        DateTime?
+}
+
+/// A tester: an Ethereum wallet that redeemed an invitation. Revoking keeps exits only
+/// (claim, refund, withdraw, cancel); opening new agreements is refused (lib/alpha/gate.ts).
+model AlphaMember {
+  walletAddress  String    @id
+  inviteId       String    @unique
+  joinedAt       DateTime  @default(now())
+  riskAckAt      DateTime?
+  revokedAt      DateTime?
+  /// The three separate boxes of the terms (package 4), each with its time and the SHA-256 of the
+  /// exact signed text accepted. Deleted at retainUntil (scripts/alpha/purge.mjs).
+  termsAcceptedAt       DateTime?
+  termsSha256           String?
+  risksAcceptedAt       DateTime?
+  risksSha256           String?
+  eligibilityAcceptedAt DateTime?
+  eligibilitySha256     String?
+  retainUntil           DateTime?
+}
+
+/// A Fee Juice grant to a tester (package 5, OD-9). Stefan makes the grant with his own keys; this
+/// row records what he reports, after the transaction is found on the network, read-only.
+/// Admins only (/api/alpha/fee-juice-grants). Exported as CSV for the tax adviser.
+model FeeJuiceGrant {
+  id                    String   @id @default(cuid())
+  recipientAztecAddress String
+  amount                String
+  network               String
+  txHash                String   @unique
+  block                 Int
+  grantedAt             DateTime @default(now())
+  marketValueEur        String
+  valueSource           String
+  recordedBy            String
+}
+
+/// Visits to ledgerchat.org, counted for the live map on the landing page. One row per UTC day
+/// and IANA time zone, with the number of different browsers that came that day. No IP address,
+/// account or browser id is stored: the time zone is the only place information (lib/stats).
+model VisitorTally {
+  day   String
+  tz    String
+  count Int    @default(0)
+
+  @@id([day, tz])
+}

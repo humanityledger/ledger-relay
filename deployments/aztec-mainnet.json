@@ -1,0 +1,186 @@
+{
+  "$comment": "Instances of our contracts on Aztec Alpha (mainnet, Ethereum L1 chain 1). contracts: empty, no escrow or stream of ours is deployed there, so agreements stay refused (lib/aztec/agreement-policy.ts). tokens: the operator's own token HLC (11 November 2026). Alpha runs real value and, in Aztec's words, is live but early, with critical bugs expected; our contracts have no external audit. An entry is added only with its transaction hash and block, after the read-only preflight (workflow \"Aztec mainnet preflight\") passes for the same artifacts. See docs/MAINNET_READINESS.md.",
+  "network": {
+    "name": "Aztec Alpha (mainnet), v6.0.0 Tierra",
+    "nodeUrl": "https://aztec-mainnet.drpc.org",
+    "l1ChainId": 1,
+    "rollupVersion": 2070860440
+  },
+  "sponsoredFpc": null,
+  "audit": null,
+  "$internalReviewComment": "An internal security review is not an audit: audit stays null and the Alpha deploy gate (lib/protocol/agreement-gate.ts) still refuses. This field only points to the report.",
+  "internalReview": {
+    "report": "docs/audit/INTERNAL_SECURITY_REVIEW_2026-11-18.md",
+    "date": "2026-11-18",
+    "baseCommit": "6251a73",
+    "workflow": "Security review (.github/workflows/security-review.yml)"
+  },
+  "$closedAlphaComment": "Closed alpha, wave 1 (operator decisions OD-1 to OD-10, 18 November 2026, docs/alpha/OPERATOR_DECISIONS.md). lib/alpha/gate.ts lets an agreement be opened on Alpha only when enabled is true, before until, for a class listed here that is also a recorded deployment in contracts, for an AlphaMember who acknowledged the risk. Off until Stefan deploys the classes and records them; until is set then (8 weeks, OD-9). This is not an audit: audit stays null.",
+  "closedAlpha": {
+    "enabled": false,
+    "until": null,
+    "scope": "value",
+    "maxTesters": 50,
+    "$distributorComment": "Who distributes HLC to testers (MiCA art. 4(1)(a); preliminary legal note, A.2; decision D-3). null: nobody can create invitation codes, redeem them or issue HLC (lib/alpha/rules.mjs). Stefan fills it in a PR of his own once counsel decides: { kind: 'company', legalName, taxId, registry } or { kind: 'natural-person', legalNote: { ref, signedBy, signedOn } }.",
+    "distributor": null,
+    "classes": [
+      "0x165090de7e22e636ed3c392069f26895eca9600c5355d5766265b84d59c6f143",
+      "0x0f2ba459de8636b73e86365de0d9a8d775b3b82bc47f39333dd17deeef6fc1e3"
+    ]
+  },
+  "contracts": [],
+  "$tokensComment": "Private tokens the wallet may list on Alpha (NEXT_PUBLIC_AZTEC_TOKENS must match these: scripts/aztec/check-alpha-config.mjs). key is the wallet's internal slot, never shown to users; symbol is what users see. deployBlock 0 (status pending-preflight) means not yet confirmed: the preflight (test/live/aztec-mainnet-preflight.live.test.ts) reads the block of deployTx from the node and prints it, together with the instance's class ID; both are then written here. Nothing is invented. HLC is issued by Humanity Ledger, is not backed by and has no relation to USDC.",
+  "tokens": [
+    {
+      "key": "USDC",
+      "symbol": "HLC",
+      "name": "Humanity Ledger Corp.",
+      "role": "test",
+      "monetaryValue": "none",
+      "renamePending": true,
+      "$renamePendingComment": "The on-chain name sets out a company that does not exist (preliminary legal note, 19/11/2026, A.4). Stefan deploys a new instance named as HLC_TOKEN_META in lib/payments/assets.ts (docs/alpha/HLC_REDEPLOY_RUNBOOK.md); once the read-only preflight confirms it, this instance moves to retiredTokens and the new one replaces it here. Until then the preflight checks that the on-chain name equals the recorded name.",
+      "decimals": 6,
+      "address": "0x1f49571a48699da4e70e1b7dbc5afcea5bb712f7b2cfaf432353e694851e24e5",
+      "admin": "0x1cf28fb5c786f5d7587c3a97790cef3d5e4dc453d485efd0b463cb1a8e81fe42",
+      "artifact": "@aztec-labs/noir-contracts.js/Token",
+      "classId": "0x067df4ddda0b0872ef604f47f3681d5e8c0de98280ac6b79963851c055ba91e0",
+      "deployTx": "0x1b1031703d15a1cd77507a241c8d3715fb6b80baf484fc9676ad968f3ae47d1c",
+      "deployBlock": 28992,
+      "deployedOn": "2026-11-14",
+      "status": "active",
+      "deployedBy": "Ledger Chat private wallet of 0x1Ba9c5cC429Ac7B8742F58c0215D6D58c009f675 (operator tool #r1, PR #91); universal deployment",
+      "confirmedBy": "Aztec mainnet preflight run 43583640304 (14 Nov 2026): deploy tx checkpointed in L2 block 28992, universal deployment (deployer zero), checkTokenInstance ok (Token)"
+    }
+  ],
+  "retiredTokens": [
+    {
+      "key": "USDC",
+      "symbol": "HLC",
+      "name": "Humanity Ledger Corp.",
+      "decimals": 6,
+      "address": "0x2cd0f3775d129210ecf2165e338e1b6b708f2243ac1b30feb0ac49875366e55d",
+      "admin": "0x01c7e18f1751ea94e3d63aad2d0b7221642ad299454f769103f0d32364ce549b",
+      "artifact": "@aztec-labs/noir-contracts.js/Token",
+      "classId": "0x067df4ddda0b0872ef604f47f3681d5e8c0de98280ac6b79963851c055ba91e0",
+      "deployTx": "0x0dfc7146b9f807432d06bccf43d3cea88e849455f8f62372ea2b93d41be29136",
+      "deployBlock": 24544,
+      "deployedOn": "2026-11-11",
+      "status": "do-not-use",
+      "confirmedBy": "Aztec mainnet preflight run 42990431384 (11 Nov 2026): deploy tx checkpointed in L2 block 24544, instance deployer = admin, checkTokenInstance ok (Token)",
+      "retired": "2026-11-14: no one holds the key of its admin account (0x01c7…549b), so it can never be issued. Replaced by the HLC below; never list it in NEXT_PUBLIC_AZTEC_TOKENS."
+    }
+  ],
+  "$plannedTokensComment": "Recorded for later, never listed by the wallet (operator decision PA-1, 19 November 2026). cUSDC is Clean USDC, issued by human.tech through its Shield bridge, not by Humanity Ledger. The address was copied from Shield's contracts page on the date in readOn and is not yet confirmed on the node: verifiedOnChain stays false until the read-only preflight confirms it. It moves to tokens only in a pull request that meets every gate in lib/payments/assets.ts (CUSDC_GATES). HLC above is a test token with no monetary value.",
+  "plannedTokens": [
+    {
+      "symbol": "cUSDC",
+      "name": "Clean USDC",
+      "decimals": 6,
+      "address": "0x30112e52178143b74cf6037d047bbba924f4b0db8aab587a340aacfc6ecb4f38",
+      "issuer": "human.tech (Shield bridge)",
+      "network": "Aztec mainnet v6.0.0",
+      "role": "real",
+      "status": "planned",
+      "source": "https://support.shield.human.tech/contracts",
+      "readOn": "2026-11-19",
+      "verifiedOnChain": false
+    }
+  ],
+  "firstPrivatePayment": {
+    "$comment": "R1: the first private payment from Ledger Chat on Aztec Alpha, 14 November 2026, from the operator's account to a second account of the operator. Blocks are filled in from the preflight; nothing guessed.",
+    "date": "2026-11-14",
+    "from": "0x1cf28fb5c786f5d7587c3a97790cef3d5e4dc453d485efd0b463cb1a8e81fe42",
+    "to": "0x2ce757e8fc073f67b9e9307ed255fa37ac69b05f6712af31517d6c1e79abb11a",
+    "token": "0x1f49571a48699da4e70e1b7dbc5afcea5bb712f7b2cfaf432353e694851e24e5",
+    "txs": [
+      {
+        "step": "deploy HLC",
+        "txHash": "0x1b1031703d15a1cd77507a241c8d3715fb6b80baf484fc9676ad968f3ae47d1c",
+        "block": 28992
+      },
+      {
+        "step": "issue 1 HLC to the sender's private balance (mint_to_private)",
+        "txHash": "0x1d90c138f482e08f2fe4d5cc28e5131a4811ab561e17e6994eab50113fd68940",
+        "block": 29001
+      },
+      {
+        "step": "private transfer of 0.10 HLC",
+        "txHash": "0x1eb2bb76ae52d876e0ef8e107bf9de5b83ce9cb42850a1a1a938cae3c24040a5",
+        "block": 29012
+      }
+    ],
+    "device": "Chrome on Windows with MetaMask (desktop)",
+    "confirmedBy": "Aztec mainnet preflight run 43583640304: all three transactions checkpointed (blocks 28992, 29001, 29012)"
+  },
+  "secondPrivatePayment": {
+    "$comment": "The first private payment sent from the regular wallet screen (Send privately), not the operator tool. Same two accounts of the operator as R1. Values read from Aztecscan on 14 Nov 2026; recipient and amount from the sender's wallet, since the chain does not show them.",
+    "date": "2026-11-14",
+    "from": "0x1cf28fb5c786f5d7587c3a97790cef3d5e4dc453d485efd0b463cb1a8e81fe42",
+    "to": "0x2ce757e8fc073f67b9e9307ed255fa37ac69b05f6712af31517d6c1e79abb11a",
+    "token": "0x1f49571a48699da4e70e1b7dbc5afcea5bb712f7b2cfaf432353e694851e24e5",
+    "amount": "0.9 HLC",
+    "txHash": "0x0a333fc0b698454e51f28d8ee18dcf3174a21605479a40a67568d4295c6fcc94",
+    "block": 29771,
+    "fee": "2.858 AZTEC, paid by the sender in Fee Juice (the same transaction claimed a 47 AZTEC Fee Juice deposit bridged from L1)",
+    "onChain": "1 note hash, 4 nullifiers, revert code 0; sender, recipient and amount not visible",
+    "confirmedBy": "Aztecscan tx-effects page, status mined (14 Nov 2026); not yet in a preflight run"
+  },
+  "measuredFees": {
+    "$comment": "Fees charged on Alpha, read from Aztecscan (tx-effects pages) on 14 Nov 2026; L2 gas derived as fee / 3.2346e12 (feePerL2Gas read from the node the same day). Used to size TX_L2_GAS_BUDGET in lib/aztec/fee-juice.ts. Amounts and parties are not visible on chain.",
+    "txs": [
+      {
+        "txHash": "0x1eb2bb76ae52d876e0ef8e107bf9de5b83ce9cb42850a1a1a938cae3c24040a5",
+        "block": 29012,
+        "what": "private transfer (operator tool)",
+        "feeAztec": "1.256"
+      },
+      {
+        "txHash": "0x0a333fc0b698454e51f28d8ee18dcf3174a21605479a40a67568d4295c6fcc94",
+        "block": 29771,
+        "what": "private transfer that also claimed a 47 AZTEC Fee Juice deposit",
+        "feeAztec": "2.858"
+      },
+      {
+        "txHash": "0x2956a31a9e98199f5efe3c98419db639b61931348734bf4baa9f9d099a02d0f9",
+        "block": 29893,
+        "what": "issue HLC to the issuer's private balance",
+        "feeAztec": "1.657"
+      },
+      {
+        "txHash": "0x2ccd3893dd2fc7e548ef75f04fc6ecbd6870b9db0c06d49875e6b39144cda6db",
+        "block": 29895,
+        "what": "private transfer from the regular wallet screen, with gas limits estimated (#104)",
+        "feeAztec": "1.233"
+      },
+      {
+        "txHash": "0x14a71087ff658c6d85d37e11a79b487f46aff73b0eea1b4252ece00ebf8bef49",
+        "block": 29923,
+        "what": "private transfer of 0.01 HLC from an account created with a contact's deposit",
+        "feeAztec": "1.307"
+      }
+    ]
+  },
+  "newUserFlow": {
+    "$comment": "First run of the path a new user takes, 14 Nov 2026: an account with no AZTEC is given Fee Juice by a contact through a fee link, is created, and sends its first private payment. Both accounts belong to the operator. Values from Etherscan, Aztecscan and the wallet screen; the account-creation hash was not copied, only its block.",
+    "account": "0x2ce757e8fc073f67b9e9307ed255fa37ac69b05f6712af31517d6c1e79abb11a",
+    "contactDeposit": {
+      "l1TxHash": "0x8bb89e6c377f28e055e5d7ff8f5809ddaa60585e63783ab416796d598d022cbd",
+      "l1Block": 26415154,
+      "method": "depositToAztecPublic on the pinned FeeJuicePortal 0x534361be805CA30Bdb6404eC5E6cDAFFB3E9f3b3",
+      "amountAztec": "20",
+      "l1GasUsed": 108854
+    },
+    "accountCreated": {
+      "block": 29921,
+      "feeAztec": "1.7989 (20 deposited, 18.2011 Fee Juice left, read in the wallet)"
+    },
+    "firstPayment": {
+      "txHash": "0x14a71087ff658c6d85d37e11a79b487f46aff73b0eea1b4252ece00ebf8bef49",
+      "block": 29923,
+      "amount": "0.01 HLC",
+      "to": "0x1cf28fb5c786f5d7587c3a97790cef3d5e4dc453d485efd0b463cb1a8e81fe42",
+      "feeAztec": "1.307",
+      "onChain": "3 note hashes, 4 nullifiers, revert code 0, fee payer the new account, payment method Fee Juice"
+    }
+  }
+}

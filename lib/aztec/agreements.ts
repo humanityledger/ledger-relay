@@ -1,0 +1,380 @@
+/**
+ * lib/aztec/agreements.ts
+ *
+ * Opening and accepting a private agreement (escrow or payment stream)
+ * between the two parties of a Ledger Chat conversation, one keyed contract
+ * instance per agreement:
+ *
+ *   sender                                   recipient
+ *   ──────                                   ─────────
+ *   openEscrow / openStream
+ *     fresh secret and salt
+ *     keyed universal deployment
+ *     register the instance with the secret
+ *     deposit / create_stream (authwit)
+ *     → invitation (JSON), sent over XMTP ──► acceptInvite
+ *                                              verifyAgreementInvite
+ *                                              (address and class recomputed
+ *                                              from the secret, current class,
+ *                                              accepted token, addressee, peer)
+ *                                              register the instance with the
+ *                                              secret
+ *
+ * The same functions drive the testnet run in scripts/aztec/e2e-escrow-testnet.mts,
+ * so the code the app uses is the code that is exercised on the network.
+ *
+ * Wallet and interaction objects are typed loosely on purpose: they come from
+ * @aztec-labs/aztec.js and @aztec-labs/wallets 6.0.0, whose shapes this module
+ * only touches through registerContract, createAuthWit and send.
+ */
+import { Fr } from '@aztec-labs/aztec.js/fields';
+import { AztecAddress } from '@aztec-labs/aztec.js/addresses';
+import { Contract, DeployMethod } from '@aztec-labs/aztec.js/contracts';
+import { randomField } from './random';
+import { poseidon2WithSeparator } from './poseidon';
+import { checkAgreementPolicy, type PolicyInput } from './agreement-policy';
+import { computeKeyedInstance, type KeyedContract, type loadKeyedArtifact } from './keyed-deploy';
+import { postThenFund } from './agreement-order';
+import {
+  verifyAgreementInvite,
+  currentClassIds,
+  type EscrowInvite,
+  type StreamInvite,
+  type VerifyOptions,
+  type AgreementInvite,
+} from './agreement-invite';
+import { contractQuote, TREASURY_ADDRESS_SET } from '../protocol/fees';
+import { buildNetwork, deployRefusal, type AgreementNetwork } from '../protocol/agreement-gate';
+
+type Artifact = ReturnType<typeof loadKeyedArtifact>;
+type AnyWallet = any;
+type AnyInteraction = any;
+type SendOptions = Record<string, unknown>;
+
+/** Separator of the escrow claim secret hash (contracts/aztec/escrow/src/main.nr). */
+export const DOM_SEP__CLAIM_SECRET = 718293041;
+
+export interface Party {
+  wallet: AnyWallet;
+  /** The party's Aztec account address. */
+  address: AztecAddress;
+}
+
+export interface OpenCommon {
+  sender: Party;
+  recipient: AztecAddress;
+  token: AztecAddress;
+  tokenSymbol: string;
+  /** The token contract bound to the sender's wallet (TokenContract.at(token, wallet)). */
+  tokenContract: AnyInteraction;
+  artifact: Artifact;
+  /** Options merged into every send: at least the fee payment method. */
+  send: SendOptions;
+  /** True when the node already has the contract class, so deployment skips publishing it. */
+  classPublished: boolean;
+  /** Network policy (lib/aztec/agreement-policy.ts); required in practice on mainnet. */
+  policy?: AgreementPolicy;
+  /** Posts the invitation (raw JSON) before funding (4.13, agreement-order.ts). Must throw if it was not posted. */
+  beforeFund?: (raw: string) => Promise<void>;
+}
+
+/** The parts of a policy check that do not depend on the agreement itself. */
+export type AgreementPolicy = Omit<PolicyInput, 'classId' | 'token' | 'amount'>;
+
+function enforcePolicy(policy: AgreementPolicy | undefined, classId: string, token: string, amount: bigint) {
+  if (!policy) return;
+  const r = checkAgreementPolicy({ ...policy, classId, token, amount });
+  if (!r.ok) throw new Error(`agreement refused by policy: ${r.reasons.join('; ')}`);
+}
+
+const CLASS_REFUSED = 'This artifact is not the current agreement class.';
+const FEE_REFUSED = 'This amount is refused. The contract would not accept the fee.';
+const MAX_REFUSED = 'This amount is above the closed alpha maximum of 100 HLC per agreement.';
+
+/**
+ * Gate for openEscrow and openStream, before any transaction is sent.
+ * The class must be a current entry of deployments/aztec-testnet.json, so a
+ * direct call cannot deploy an older artifact. An amount the contract would
+ * refuse is refused here with the same arithmetic (contractQuote): above the
+ * alpha maximum of 100 HLC (OD-2), for an escrow and for a stream total. The
+ * alpha classes charge no protocol fee (OD-7). Then lib/protocol/agreement-gate.ts: on
+ * Alpha nothing is deployed while deployments/aztec-mainnet.json has no audit;
+ * a crate whose source is ahead of its artifact (pending recompile with the
+ * designated treasury) is not deployed; nothing is deployed without a treasury.
+ */
+export async function assertCanOpen(
+  kind: KeyedContract,
+  amount: bigint,
+  classId: string,
+  network: AgreementNetwork = buildNetwork(),
+): Promise<void> {
+  const unwrap = <T>(m: unknown): T => ((m as { default?: unknown }).default ?? m) as T;
+  const record = unwrap<Parameters<typeof currentClassIds>[0]>(await import('../../deployments/aztec-testnet.json'));
+  const allowed = currentClassIds(record)[kind];
+  if (!allowed.some((id) => id.toLowerCase() === classId.toLowerCase())) {
+    throw new Error(CLASS_REFUSED);
+  }
+  const quoted = contractQuote(amount, kind);
+  if (!quoted.ok) throw new Error(quoted.reason === 'above-alpha-maximum' ? MAX_REFUSED : FEE_REFUSED);
+  const mainnet = unwrap<{ audit?: unknown }>(await import('../../deployments/aztec-mainnet.json'));
+  const pending = unwrap<{ pending?: Array<{ contract?: string }> }>(await import('../../deployments/aztec-pending-recompile.json'));
+  const refusal = deployRefusal({
+    kind,
+    network,
+    audit: mainnet.audit ?? null,
+    pendingContracts: (pending.pending ?? []).map((p) => String(p.contract ?? '')),
+    treasurySet: TREASURY_ADDRESS_SET,
+  });
+  if (refusal) throw new Error(refusal);
+}
+
+export interface Opened<I extends AgreementInvite> {
+  invite: I;
+  /** The invitation as sent over XMTP. Contains secrets: never log it. */
+  raw: string;
+  contract: AnyInteraction;
+  txHashes: { deploy?: string; fund?: string };
+  /** Blocks the deploy and funding transactions landed in, when the receipt reports them. */
+  blocks: { deploy?: number; fund?: number };
+}
+
+export const claimSecretHash = (claimSecret: Fr) => poseidon2WithSeparator([claimSecret], DOM_SEP__CLAIM_SECRET);
+
+const blockOf = (sent: any): number | undefined => {
+  const b = sent?.receipt?.blockNumber ?? sent?.blockNumber;
+  return b === undefined || b === null ? undefined : Number(b);
+};
+
+/** Keyed universal deployment of a fresh instance, registered with its secret in the sender's wallet. */
+async function deployKeyed(c: OpenCommon, amount: bigint, kind: KeyedContract) {
+  const secretKey = randomField();
+  const salt = randomField();
+  const expected = await computeKeyedInstance(c.artifact, { secretKey, salt, token: c.token });
+  const classId = expected.instance.currentContractClassId.toString();
+  // Before anything is sent: current class, fee the contract would accept, treasury set.
+  await assertCanOpen(kind, amount, classId);
+  enforcePolicy(c.policy, classId, c.token.toString(), amount);
+  const deployment = DeployMethod.create(
+    c.sender.wallet,
+    { artifact: c.artifact, args: [c.token], postDeployCtor: (instance: any, w: any) => Contract.at(instance.address, c.artifact, w) },
+    { salt, publicKeys: expected.publicKeys, universalDeploy: true },
+  );
+  const res: any = await deployment.send({ from: c.sender.address, skipClassPublication: c.classPublished, wait: { timeout: 900 }, ...c.send } as any);
+  const address = AztecAddress.fromStringUnsafe((res.instance?.address ?? res.contract?.address).toString());
+  if (!address.equals(expected.instance.address)) throw new Error('deployed address differs from the keyed instance computed locally');
+  await c.sender.wallet.registerContract(expected.instance, c.artifact, secretKey);
+  return { secretKey, salt, expected, address, deployTx: res.receipt?.txHash?.toString() as string | undefined, deployBlock: blockOf(res) };
+}
+
+async function authwit(c: OpenCommon, caller: AztecAddress, amount: bigint) {
+  const nonce = randomField();
+  const pull = c.tokenContract.methods.transfer_in_private(c.sender.address, caller, amount, nonce);
+  let witness: any;
+  try {
+    witness = await c.sender.wallet.createAuthWit(c.sender.address, { caller, call: await pull.getFunctionCall() });
+  } catch {
+    witness = await c.sender.wallet.createAuthWit(c.sender.address, { caller, action: pull });
+  }
+  return { nonce, witness };
+}
+
+/** Opens an escrow: its own keyed PrivateEscrow instance, funded with `amount`. */
+export async function openEscrow(c: OpenCommon & { amount: bigint; deadline: number }): Promise<Opened<EscrowInvite>> {
+  const d = await deployKeyed(c, c.amount, 'escrow');
+  const contract = Contract.at(d.address, c.artifact, c.sender.wallet) as AnyInteraction;
+  const claimSecret = randomField();
+  const escrowId = randomField();
+  const invite: EscrowInvite = {
+    type: 'hl.escrow_invite',
+    version: 1,
+    instanceAddress: d.address.toString(),
+    classId: d.expected.instance.currentContractClassId.toString(),
+    salt: d.salt.toString(),
+    contractSecret: d.secretKey.toString(),
+    token: c.token.toString(),
+    tokenSymbol: c.tokenSymbol,
+    sender: c.sender.address.toString(),
+    recipient: c.recipient.toString(),
+    escrowId: escrowId.toString(),
+    claimSecret: claimSecret.toString(),
+    amount: c.amount.toString(),
+    deadline: c.deadline,
+  };
+  const raw = JSON.stringify(invite);
+  // 4.13: the invitation is posted before any token moves.
+  const sent: any = await postThenFund(raw, c.beforeFund, async () => {
+    const w = await authwit(c, d.address, c.amount);
+    return contract.methods
+      .deposit(c.recipient, c.amount, BigInt(c.deadline), await claimSecretHash(claimSecret), escrowId, w.nonce)
+      .send({ from: c.sender.address, authWitnesses: [w.witness], wait: { timeout: 900 }, ...c.send });
+  });
+  return { invite, raw, contract, txHashes: { deploy: d.deployTx, fund: sent?.receipt?.txHash?.toString() ?? sent?.txHash?.toString() }, blocks: { deploy: d.deployBlock, fund: blockOf(sent) } };
+}
+
+/**
+ * Opens a payment stream: its own keyed PaymentStream instance, funded with `total`.
+ * `total` is not refused when its one-shot fee exceeds TX_CAP. The contract creates
+ * that stream and the recipient withdraws it in slices, each slice paying its own fee.
+ */
+export async function openStream(
+  c: OpenCommon & { total: bigint; rate: bigint; start: number | (() => number) },
+): Promise<Opened<StreamInvite>> {
+  const d = await deployKeyed(c, c.total, 'streams');
+  const contract = Contract.at(d.address, c.artifact, c.sender.wallet) as AnyInteraction;
+  const streamSalt = randomField();
+  // Resolved after the deploy, right before posting: the deploy's proving time does not add to the upfront accrual.
+  const start = typeof c.start === 'function' ? c.start() : c.start;
+  const invite: StreamInvite = {
+    type: 'hl.stream_invite',
+    version: 1,
+    instanceAddress: d.address.toString(),
+    classId: d.expected.instance.currentContractClassId.toString(),
+    salt: d.salt.toString(),
+    contractSecret: d.secretKey.toString(),
+    token: c.token.toString(),
+    tokenSymbol: c.tokenSymbol,
+    sender: c.sender.address.toString(),
+    recipient: c.recipient.toString(),
+    streamSalt: streamSalt.toString(),
+    total: c.total.toString(),
+    rate: c.rate.toString(),
+    start,
+  };
+  const raw = JSON.stringify(invite);
+  // 4.13: the invitation is posted before any token moves.
+  const sent: any = await postThenFund(raw, c.beforeFund, async () => {
+    const w = await authwit(c, d.address, c.total);
+    return contract.methods
+      .create_stream(c.recipient, c.total, c.rate, BigInt(start), streamSalt, w.nonce)
+      .send({ from: c.sender.address, authWitnesses: [w.witness], wait: { timeout: 900 }, ...c.send });
+  });
+  return { invite, raw, contract, txHashes: { deploy: d.deployTx, fund: sent?.receipt?.txHash?.toString() ?? sent?.txHash?.toString() }, blocks: { deploy: d.deployBlock, fund: blockOf(sent) } };
+}
+
+export type Accepted =
+  | { ok: true; invite: AgreementInvite; kind: KeyedContract; contract: AnyInteraction }
+  | { ok: false; reason: string };
+
+/**
+ * Verifies a received invitation and, only if it passes, registers the
+ * instance with its secret in the recipient's wallet. The recipient's token
+ * notes and the contract's notes then become visible to the recipient's PXE.
+ */
+export async function acceptInvite(
+  recipient: Party,
+  raw: string,
+  opts: Omit<VerifyOptions, 'me'> & { policy?: AgreementPolicy },
+): Promise<Accepted> {
+  const v = await verifyAgreementInvite(raw, { ...opts, me: recipient.address.toString() });
+  if (!v.ok) return v;
+  const inv = v.invite;
+  if (opts.policy) {
+    const r = checkAgreementPolicy({
+      ...opts.policy,
+      classId: inv.classId,
+      token: inv.token,
+      amount: BigInt(inv.type === 'hl.escrow_invite' ? inv.amount : inv.total),
+    });
+    if (!r.ok) return { ok: false, reason: `refused by policy: ${r.reasons.join('; ')}` };
+  }
+  const kind: KeyedContract = inv.type === 'hl.escrow_invite' ? 'escrow' : 'streams';
+  const artifact = opts.artifacts[kind];
+  const { instance } = await computeKeyedInstance(artifact, {
+    secretKey: Fr.fromString(inv.contractSecret),
+    salt: Fr.fromString(inv.salt),
+    token: AztecAddress.fromStringUnsafe(inv.token),
+  });
+  await recipient.wallet.registerContract(instance, artifact, Fr.fromString(inv.contractSecret));
+  await recipient.wallet.registerSender?.(AztecAddress.fromStringUnsafe(inv.sender), 'agreement peer');
+  return { ok: true, invite: inv, kind, contract: Contract.at(instance.address, artifact, recipient.wallet) };
+}
+
+// ─── Confirming an agreement against the contract's own notes ─────────────────
+//
+// verifyAgreementInvite proves that the invitation names a genuine instance
+// of the checked class. It cannot prove that the deposit behind it matches
+// the invitation's amount, deadline or claim secret: those fields are the
+// sender's word. escrow_view and stream_view (utility functions, run in the
+// receiver's PXE) return what the contract actually stored, and the
+// functions below compare it with the invitation. A client shows an
+// agreement as confirmed only when the list of mismatches is empty.
+
+type Decoded = unknown;
+
+const big = (x: Decoded): bigint => {
+  if (typeof x === 'bigint') return x;
+  if (typeof x === 'number' || typeof x === 'boolean') return BigInt(x);
+  if (typeof x === 'string') return BigInt(x);
+  const o = x as { toBigInt?: () => bigint; toString?: () => string } | null;
+  if (o?.toBigInt) return o.toBigInt();
+  if (o && typeof (o as any).inner !== 'undefined') return big((o as any).inner);
+  if (o?.toString) return BigInt(o.toString());
+  throw new Error('unexpected value in view result');
+};
+const sameValue = (a: Decoded, b: Decoded) => big(a) === big(b);
+
+export interface EscrowView {
+  found: boolean;
+  settled: boolean;
+  note: { escrow_id: Decoded; sender: Decoded; recipient: Decoded; amount: Decoded; deadline: Decoded; claim_secret_hash: Decoded };
+}
+
+export interface StreamView {
+  found: boolean;
+  live: boolean;
+  available: Decoded;
+  note: { sender: Decoded; recipient: Decoded; total: Decoded; rate: Decoded; start: Decoded; withdrawn: Decoded; salt: Decoded; index: Decoded };
+}
+
+/** Fields of the invitation that the stored escrow note contradicts; empty when they agree. */
+export function escrowMismatches(view: EscrowView, invite: EscrowInvite, claimSecretHashValue: Decoded): string[] {
+  if (!view.found) return ['escrow not found in your notes'];
+  const out: string[] = [];
+  const n = view.note;
+  if (!sameValue(n.escrow_id, invite.escrowId)) out.push('escrowId');
+  if (!sameValue(n.sender, invite.sender)) out.push('sender');
+  if (!sameValue(n.recipient, invite.recipient)) out.push('recipient');
+  if (!sameValue(n.amount, invite.amount)) out.push('amount');
+  if (!sameValue(n.deadline, invite.deadline)) out.push('deadline');
+  if (!sameValue(n.claim_secret_hash, claimSecretHashValue)) out.push('claimSecret');
+  if (view.settled) out.push('already settled');
+  return out;
+}
+
+/** Fields of the invitation that the stored stream state contradicts; empty when they agree. */
+export function streamMismatches(view: StreamView, invite: StreamInvite): string[] {
+  if (!view.found) return ['stream not found in your notes'];
+  const out: string[] = [];
+  const n = view.note;
+  if (!sameValue(n.salt, invite.streamSalt)) out.push('streamSalt');
+  if (!sameValue(n.sender, invite.sender)) out.push('sender');
+  if (!sameValue(n.recipient, invite.recipient)) out.push('recipient');
+  if (!sameValue(n.total, invite.total)) out.push('total');
+  if (!sameValue(n.rate, invite.rate)) out.push('rate');
+  if (!sameValue(n.start, invite.start)) out.push('start');
+  if (!view.live) out.push('stream no longer live');
+  return out;
+}
+
+/**
+ * Reads the accepted agreement from the contract (utility call, local to the
+ * receiver's PXE) and returns the fields that contradict the invitation.
+ * Call it after acceptInvite; the PXE may need a block or two to discover
+ * the notes, so "not found" right after a deposit can be transient.
+ */
+// simulate() returns the value, or { result, ... } when metadata is requested.
+const unwrap = <T>(r: any): T => (r && typeof r === 'object' && 'result' in r && !('found' in r) ? r.result : r) as T;
+
+export async function confirmAgreement(me: Party, accepted: Extract<Accepted, { ok: true }>): Promise<string[]> {
+  const inv = accepted.invite;
+  if (inv.type === 'hl.escrow_invite') {
+    const view = unwrap<EscrowView>(
+      await accepted.contract.methods.escrow_view(me.address, Fr.fromString(inv.escrowId)).simulate({ from: me.address }),
+    );
+    return escrowMismatches(view, inv, await claimSecretHash(Fr.fromString(inv.claimSecret)));
+  }
+  const view = unwrap<StreamView>(
+    await accepted.contract.methods.stream_view(me.address, Fr.fromString(inv.streamSalt)).simulate({ from: me.address }),
+  );
+  return streamMismatches(view, inv);
+}

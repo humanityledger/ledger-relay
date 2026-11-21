@@ -1,0 +1,49 @@
+# End-to-end run of keyed PrivateEscrow and PaymentStream instances on Aztec
+# testnet: throwaway accounts paid by the sponsored FPC, a fresh test token;
+# escrow claim before the deadline and refund after it, stream withdrawal
+# bounded by accrual. No secrets; every transaction hash goes to the job
+# summary and to the e2e-escrow-receipt artifact.
+
+name: Aztec escrow e2e (testnet)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['claude/**']
+    paths:
+      - 'scripts/aztec/e2e-escrow-testnet.mts'
+      - '.github/workflows/aztec-escrow-e2e.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aztec-escrow-e2e
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --include=dev
+      - name: Keyed escrow (claim, refund) and stream (withdraw) on testnet
+        # lib/ has no "type": "module", so tsx would load lib/aztec/*.ts as
+        # CommonJS next to the ESM script and wallet: two copies of the SDK
+        # classes, and the wallet rejects an Fr made by the other copy. The app
+        # bundle has a single copy; for this run only, lib/aztec is loaded as
+        # ESM (the file is not committed).
+        run: |
+          echo '{"type":"module"}' > lib/aztec/package.json
+          node --conditions=browser --import tsx --import ./scripts/aztec/register.mjs scripts/aztec/e2e-escrow-testnet.mts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-escrow-receipt
+          path: e2e-escrow-receipt.json
+          if-no-files-found: ignore

@@ -1,0 +1,190 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
+import { resolveVerifiedCaller } from '@/lib/security/resolveCaller';
+import { getInMemoryCommunityBySlugOrId } from '@/lib/communities/in-memory-communities';
+
+export const dynamic = 'force-dynamic';
+
+const clean = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+
+const isSafeAvatar = (v: unknown): v is string =>
+  typeof v === 'string' &&
+  v.length <= 400_000 &&
+  /^(https:\/\/|data:image\/(png|jpeg|webp|gif);base64,)/i.test(v);
+
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    // Reading a community requires a signed in wallet. Private communities are
+    // visible to members only, and the invite code and member list are never
+    // shown to people who have not joined.
+    const caller = await resolveVerifiedCaller(req);
+    if (!caller) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const { id: communityId } = await params;
+
+    // ── Try DB first ───────────────────────────────────────────────────────────
+    let community: any = null;
+    try {
+      community = await (prisma as any).community.findUnique({
+        where: { id: communityId },
+        include: {
+          members: true,
+          channels: { orderBy: { position: 'asc' } },
+          permissions: true,
+          // Community has no `posts` relation (CommunityPost only stores communityId), so counting
+          // posts here made Prisma throw on every request and the community never opened.
+          _count: { select: { members: true, channels: true } },
+        },
+      });
+    } catch {
+      try {
+        community = await (prisma as any).community.findUnique({ where: { id: communityId } });
+      } catch {
+        community = null;
+      }
+    }
+
+    // ── In-memory fallback ────────────────────────────────────────────────────
+    if (!community) {
+      const mem = getInMemoryCommunityBySlugOrId(communityId);
+      if (!mem) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+      const isMember =
+        mem.ownerAddress?.toLowerCase() === caller ||
+        mem.members.some((m) => m.walletAddress?.toLowerCase() === caller);
+
+      if (mem.isPrivate && !isMember) {
+        return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      }
+
+      return NextResponse.json({
+        community: {
+          ...mem,
+          isMember,
+          membersCount: mem.membersCount,
+          postsCount: 0,
+          ...(isMember ? {} : { members: [], joinCode: undefined }),
+        },
+      });
+    }
+
+    const isMember =
+      community.ownerAddress?.toLowerCase() === caller ||
+      (community.members || []).some((m: any) => String(m.walletAddress).toLowerCase() === caller);
+
+    if (community.isPrivate && !isMember) {
+      // Same answer as a missing community, so ids cannot be probed.
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+
+    const postsCount: number = await (prisma as any).communityPost
+      .count({ where: { communityId: community.id } })
+      .catch(() => 0);
+
+    const { joinCode, members, _count, ...rest } = community;
+    return NextResponse.json({
+      community: {
+        ...rest,
+        ...(isMember ? { members, joinCode } : { members: [] }),
+        isMember,
+        membersCount: community._count?.members ?? (members || []).length,
+        postsCount,
+      },
+    });
+  } catch (e: any) {
+    console.error('[communities/[id] GET]', e);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const caller = await resolveVerifiedCaller(req);
+    if (!caller) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const { id: communityId } = await params;
+
+    // In-memory PATCH
+    const mem = getInMemoryCommunityBySlugOrId(communityId);
+    if (mem) {
+      if (mem.ownerAddress?.toLowerCase() !== caller) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      const body = await req.json().catch(() => ({}));
+      if (body.name) mem.name = clean(body.name, 60);
+      if (body.description !== undefined) mem.description = clean(body.description, 280);
+      if (body.isPrivate !== undefined) mem.isPrivate = Boolean(body.isPrivate);
+      return NextResponse.json({ community: mem });
+    }
+
+    let community: any = null;
+    try {
+      community = await (prisma as any).community.findUnique({ where: { id: communityId } });
+    } catch {
+      return NextResponse.json({ error: 'Service temporarily unavailable' }, { status: 503 });
+    }
+
+    if (!community) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+    const membership = await (prisma as any).communityMember.findFirst({
+      where: { communityId, walletAddress: caller },
+    }).catch(() => null);
+    const isAdmin = community.ownerAddress?.toLowerCase() === caller || membership?.role === 'ADMIN';
+    if (!isAdmin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+    const body = await req.json().catch(() => ({}));
+    const data: Record<string, any> = {};
+    if (body.name !== undefined) {
+      const name = clean(body.name, 60);
+      if (!name) return NextResponse.json({ error: 'Name required' }, { status: 400 });
+      data.name = name;
+    }
+    if (body.description !== undefined) data.description = clean(body.description, 280);
+    if (body.isPrivate !== undefined) data.isPrivate = Boolean(body.isPrivate);
+    if (body.avatarUrl !== undefined) data.avatarUrl = isSafeAvatar(body.avatarUrl) ? body.avatarUrl : null;
+    // Permissions are changed through /api/chat/communities (UPDATE_PERMISSIONS),
+    // which accepts boolean flags only. Passing a client object straight into a
+    // Prisma relation would allow nested writes, so it is not accepted here.
+
+    const updated = await (prisma as any).community.update({ where: { id: communityId }, data });
+    return NextResponse.json({ community: updated });
+  } catch (e: any) {
+    console.error('[communities/[id] PATCH]', e);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const caller = await resolveVerifiedCaller(req);
+    if (!caller) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const { id: communityId } = await params;
+
+    // In-memory DELETE (no-op for seeded communities)
+    const mem = getInMemoryCommunityBySlugOrId(communityId);
+    if (mem) {
+      if (mem.ownerAddress?.toLowerCase() !== caller)
+        return NextResponse.json({ error: 'Only owner can delete' }, { status: 403 });
+      // In-memory communities cannot be permanently deleted (they reseed on restart).
+      return NextResponse.json({ ok: true });
+    }
+
+    let community: any = null;
+    try {
+      community = await (prisma as any).community.findUnique({ where: { id: communityId } });
+    } catch {
+      return NextResponse.json({ error: 'Service temporarily unavailable' }, { status: 503 });
+    }
+
+    if (!community) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (community.ownerAddress?.toLowerCase() !== caller)
+      return NextResponse.json({ error: 'Only owner can delete' }, { status: 403 });
+
+    await (prisma as any).community.delete({ where: { id: communityId } });
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    console.error('[communities/[id] DELETE]', e);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}

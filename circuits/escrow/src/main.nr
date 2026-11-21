@@ -1,0 +1,165 @@
+// circuits/escrow/src/main.nr
+// Humanity Ledger Protocol — Private Escrow Release Circuit
+//
+// STATUS: DEPRECATED — historical reference only.
+// The long-term path is the aztec-nr PrivateEscrow contract (contracts/aztec/escrow/).
+// This standalone Noir circuit has known soundness issues ZK-01 to ZK-07 documented
+// in docs/AZTEC_FOUNDATION_DOSSIER.md § 4 and in circuits/CONSTRAINT_COMPLETENESS.md.
+// No production path uses this circuit. The v2 version (circuits/escrow_v2/) fixes
+// ZK-01 to ZK-05 but is also not used in production. See docs/zk/V2_CIRCUITS.md.
+//
+// Invariants enforced:
+// 1. Escrow commitment binding: commitment == H(sender_secret, recipient_pubkey, amount, salt)
+// 2. Temporal validity: current_timestamp <= deadline
+// 3. Nullifier derivation: nullifier == H(sender_secret, salt)
+// 4. Positive amount: amount > 0
+// 5. Value ceiling: amount <= MAX_ESCROW_AMOUNT (overflow protection)
+// 6. Identity non-zero: recipient_pubkey != 0 and sender_secret != 0
+
+use std::hash::pedersen_hash;
+
+global MAX_ESCROW_AMOUNT: u64 = 1_000_000_000_000_000; // 1 Billion standard units (1e15)
+
+fn main(
+    // Private inputs (witness)
+    sender_secret: Field,
+    recipient_pubkey: Field,
+    amount: u64,
+    salt: Field,
+    
+    // Public inputs — Noir 1.x syntax
+    escrow_commitment: pub Field,
+    nullifier: pub Field,
+    deadline: pub u64,
+    current_timestamp: pub u64
+) {
+    // 1. Enforce amount is strictly positive and within protocol maximum bounds
+    assert(amount > 0);
+    assert(amount <= MAX_ESCROW_AMOUNT);
+
+    // 2. Enforce non-zero identity keys
+    assert(sender_secret != 0);
+    assert(recipient_pubkey != 0);
+
+    // 3. Enforce temporal boundary: release must occur before or at deadline
+    assert(current_timestamp <= deadline);
+
+    // 4. Verify escrow commitment
+    let calculated_commitment = pedersen_hash([
+        sender_secret,
+        recipient_pubkey,
+        amount as Field,
+        salt
+    ]);
+    assert(calculated_commitment == escrow_commitment);
+
+    // 5. Verify unique nullifier to prevent double release
+    let calculated_nullifier = pedersen_hash([sender_secret, salt]);
+    assert(calculated_nullifier == nullifier);
+}
+
+#[test]
+fn test_valid_escrow() {
+    let sender: Field = 12345;
+    let recipient: Field = 67890;
+    let amt: u64 = 1000;
+    let salt: Field = 999;
+    let deadline: u64 = 1800000000;
+    let now: u64 = 1750000000;
+
+    let commitment = pedersen_hash([sender, recipient, amt as Field, salt]);
+    let nullifier = pedersen_hash([sender, salt]);
+
+
+    main(sender, recipient, amt, salt, commitment, nullifier, deadline, now);
+}
+
+#[test(should_fail)]
+fn test_expired_deadline() {
+    let sender: Field = 12345;
+    let recipient: Field = 67890;
+    let amt: u64 = 1000;
+    let salt: Field = 999;
+    let deadline: u64 = 1800000000;
+    let now: u64 = 1800000001; // Past deadline
+
+    let commitment = pedersen_hash([sender, recipient, amt as Field, salt]);
+    let nullifier = pedersen_hash([sender, salt]);
+
+    main(sender, recipient, amt, salt, commitment, nullifier, deadline, now);
+}
+
+#[test(should_fail)]
+fn test_tampered_commitment() {
+    let sender: Field = 12345;
+    let recipient: Field = 67890;
+    let amt: u64 = 1000;
+    let salt: Field = 999;
+    let deadline: u64 = 1800000000;
+    let now: u64 = 1750000000;
+
+    let forged_commitment: Field = 0xdeadbeef;
+    let nullifier = pedersen_hash([sender, salt]);
+
+    main(sender, recipient, amt, salt, forged_commitment, nullifier, deadline, now);
+}
+
+#[test(should_fail)]
+fn test_tampered_nullifier() {
+    let sender: Field = 12345;
+    let recipient: Field = 67890;
+    let amt: u64 = 1000;
+    let salt: Field = 999;
+    let deadline: u64 = 1800000000;
+    let now: u64 = 1750000000;
+
+    let commitment = pedersen_hash([sender, recipient, amt as Field, salt]);
+    let forged_nullifier: Field = 0xbad000;
+
+    main(sender, recipient, amt, salt, commitment, forged_nullifier, deadline, now);
+}
+
+#[test(should_fail)]
+fn test_zero_amount() {
+    let sender: Field = 12345;
+    let recipient: Field = 67890;
+    let amt: u64 = 0;
+    let salt: Field = 999;
+    let deadline: u64 = 1800000000;
+    let now: u64 = 1750000000;
+
+    let commitment = pedersen_hash([sender, recipient, amt as Field, salt]);
+    let nullifier = pedersen_hash([sender, salt]);
+
+    main(sender, recipient, amt, salt, commitment, nullifier, deadline, now);
+}
+
+#[test(should_fail)]
+fn test_excessive_amount() {
+    let sender: Field = 12345;
+    let recipient: Field = 67890;
+    let amt: u64 = MAX_ESCROW_AMOUNT + 1;
+    let salt: Field = 999;
+    let deadline: u64 = 1800000000;
+    let now: u64 = 1750000000;
+
+    let commitment = pedersen_hash([sender, recipient, amt as Field, salt]);
+    let nullifier = pedersen_hash([sender, salt]);
+
+    main(sender, recipient, amt, salt, commitment, nullifier, deadline, now);
+}
+
+#[test(should_fail)]
+fn test_zero_sender_identity() {
+    let sender: Field = 0;
+    let recipient: Field = 67890;
+    let amt: u64 = 1000;
+    let salt: Field = 999;
+    let deadline: u64 = 1800000000;
+    let now: u64 = 1750000000;
+
+    let commitment = pedersen_hash([sender, recipient, amt as Field, salt]);
+    let nullifier = pedersen_hash([sender, salt]);
+
+    main(sender, recipient, amt, salt, commitment, nullifier, deadline, now);
+}

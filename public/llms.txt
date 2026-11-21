@@ -1,0 +1,45 @@
+﻿# Humanity Ledger
+
+> Humanity Ledger builds Ledger Chat, a messenger in which an Ethereum wallet is the account. Direct messages are encrypted on the user's device with MLS (RFC 9420) through the XMTP network. Payments are signed in the user's own wallet. A private payments wallet runs on the Aztec test network with test tokens. The product is in early access, and its contracts have not been independently audited.
+
+This file summarises the public documentation at https://ledgerchat.org/docs. When the two differ, the documentation is correct. Facts below were last checked on 23 October 2026.
+
+## Who provides it
+
+- Humanity Ledger builds sovereign identity and encrypted messaging protocols. Its flagship application is Ledger Chat.
+- It is not affiliated with Humanity Protocol, Ledger SAS, Aztec Labs or XMTP.
+- Contact: humanityledger@icloud.com
+- Source code: https://github.com/humanityledger/Humanity-Ledger (open source, MIT OR Apache-2.0 at your option)
+
+## What works today
+
+- Sign in with Ethereum (EIP-4361) or with an email code.
+- Direct messages encrypted with MLS through XMTP. When XMTP delivery fails, a message can go through the Humanity Ledger server in readable form; such messages are labelled "Not end to end encrypted" in the chat.
+- Communities with channels, roles and invite links. Community posts are stored readable on the server.
+- Voice and video calls over WebRTC, encrypted with DTLS-SRTP.
+- Payments in ETH, USDC and USDT on Ethereum, signed in the user's own wallet. Humanity Ledger never holds funds.
+- Private payments (shield, send, receive by QR code, unshield) on the Aztec test network only. The tokens have no value. There is no bridge from Ethereum yet.
+- Web app. A Windows preview build is unsigned. iPhone and Android apps are not in the stores.
+
+## What does not exist
+
+- There is no Humanity Ledger token. "Quantum Dots", "Core Dots", "QD" or "QDs" were never launched and are not part of the product. Anyone selling them is not Humanity Ledger.
+- There is no third party security audit and no penetration test yet.
+- There is no "Humanity Ledger Foundation" and no "Humanity Ledger S.L.".
+
+## Key pages
+
+- [Overview](https://ledgerchat.org/docs/overview): what works today and what does not.
+- [Messaging](https://ledgerchat.org/docs/ledger-chat): what is encrypted and how fallback messages are labelled.
+- [Private payments on Aztec](https://ledgerchat.org/docs/zero-knowledge): how the test network wallet works.
+- [Architecture](https://ledgerchat.org/docs/architecture): each component and what it can see.
+- [Whitepaper](https://ledgerchat.org/docs/whitepaper): the technical design and threat model.
+- [Security audits and open findings](https://ledgerchat.org/docs/audits)
+- [Report a vulnerability](https://ledgerchat.org/docs/bug-bounty)
+- [Legal notice](https://ledgerchat.org/docs/legal-notice)
+- [Terms of Service](https://ledgerchat.org/docs/terms)
+- [Privacy Policy](https://ledgerchat.org/docs/privacy)
+- [Cookie Policy](https://ledgerchat.org/docs/cookies)
+- [Content and copyright](https://ledgerchat.org/docs/content-policy)
+- [Risk disclosure](https://ledgerchat.org/docs/disclaimer)
+- [Changelog](https://ledgerchat.org/changelog)

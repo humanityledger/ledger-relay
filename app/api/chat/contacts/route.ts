@@ -1,0 +1,85 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
+import { requireWallet } from '@/lib/security/requireWallet';
+
+export const dynamic = 'force-dynamic';
+
+export async function GET(req: NextRequest) {
+  try {
+    const auth = await requireWallet(req);
+    if (auth.errorResponse) return auth.errorResponse;
+    const callerAddress = auth.walletAddress;
+
+    const { searchParams } = new URL(req.url);
+    const queryAddress = searchParams.get('address')?.toLowerCase();
+    if (queryAddress && queryAddress !== callerAddress) {
+      return NextResponse.json({ error: 'Forbidden: Cannot access contacts for another address' }, { status: 403 });
+    }
+
+    try {
+      const contacts = await prisma.chatContact.findMany({
+        where: { owner: callerAddress },
+        orderBy: { updatedAt: 'desc' },
+      });
+      return NextResponse.json({ peers: contacts.map(c => c.peer) });
+    } catch (dbError: any) {
+      console.warn('[Chat Contacts] Database offline or unavailable, returning empty contacts list.');
+      return NextResponse.json({ peers: [] });
+    }
+  } catch (error) {
+    console.error('[Chat Contacts] Error fetching:', error);
+    return NextResponse.json({ peers: [] });
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const auth = await requireWallet(req);
+    if (auth.errorResponse) return auth.errorResponse;
+    const callerAddress = auth.walletAddress;
+
+    const { searchParams } = new URL(req.url);
+    const queryAddress = searchParams.get('address')?.toLowerCase();
+    if (queryAddress && queryAddress !== callerAddress) {
+      return NextResponse.json({ error: 'Forbidden: Cannot modify contacts for another address' }, { status: 403 });
+    }
+
+    const body = await req.json();
+    const { address, peers } = body;
+
+    if (!peers || !Array.isArray(peers)) {
+      return NextResponse.json({ error: 'Missing or invalid parameters' }, { status: 400 });
+    }
+
+    if (address && address.toLowerCase() !== callerAddress) {
+      return NextResponse.json({ error: 'Forbidden: Cannot modify contacts for another address' }, { status: 403 });
+    }
+
+    // One request used to upsert any number of rows, with any string as an
+    // address. Bound it and keep only real addresses.
+    const clean: string[] = Array.from(new Set<string>(
+      peers.filter((p: unknown): p is string => typeof p === 'string' && /^0x[0-9a-fA-F]{40}$/.test(p))
+        .map((p: string) => p.toLowerCase())
+        .filter((p: string) => p !== callerAddress),
+    )).slice(0, 200);
+    if (clean.length === 0) return NextResponse.json({ success: true });
+
+    const owner = callerAddress;
+
+    try {
+      // One INSERT … ON CONFLICT DO NOTHING instead of up to 200 upserts in a transaction: the
+      // client posts its whole list, and nearly every row already exists.
+      await prisma.chatContact.createMany({
+        data: clean.map((peer: string) => ({ owner, peer })),
+        skipDuplicates: true,
+      });
+    } catch (dbError: any) {
+      console.warn('[Chat Contacts] Database offline, contact saved to client storage.');
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('[Chat Contacts] Error saving:', error);
+    return NextResponse.json({ success: true });
+  }
+}

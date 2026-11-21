@@ -1,0 +1,48 @@
+Ledger Chat, by Humanity Ledger
+Copyright (c) 2024-2026 Stefan Antonio Cirisanu and the Humanity Ledger contributors
+
+Licensed under MIT OR Apache-2.0, at your option. See LICENSE, LICENSE-MIT
+and LICENSE-APACHE.
+
+Website:  https://ledgerchat.org
+Source:   https://github.com/humanityledger/Humanity-Ledger
+Contact:  humanityledger@icloud.com
+
+--------------------------------------------------------------------------------
+Names and logos
+--------------------------------------------------------------------------------
+
+"Humanity Ledger" and "Ledger Chat", and their logos (public/logo-*.png,
+public/brand/ except public/brand/aztec/, the app icons and favicons), identify
+the project of Stefan Antonio Cirisanu. The code licences do not cover them.
+
+You may fork, modify, run and redistribute the code under MIT or Apache-2.0,
+including commercially. If you deploy a modified version for other people,
+give it another name and logo, and do not present it as Ledger Chat or as
+operated by Humanity Ledger. Stating that your work is based on Ledger Chat is
+welcome.
+
+--------------------------------------------------------------------------------
+Third-party material
+--------------------------------------------------------------------------------
+
+Dependencies. Packages installed from package.json and package-lock.json, the
+aztec-nr and Noir libraries named in the Nargo.toml files, and the Solidity
+libraries used by contracts/ are the work of their authors and keep their own
+licences.
+
+Logos and images of other projects. The following files show marks of other
+projects so that the product can refer to them. They belong to their owners
+and are not licensed under MIT or Apache-2.0 by us:
+
+  * public/brand/aztec/, public/aztec-logo-black.png,
+    public/aztec-execution-flow.jpg, public/aztec-kernel-circuit.jpg,
+    public/aztec_x_ledger_partnership.svg (Aztec)
+  * public/wallets/ (MetaMask, Coinbase Wallet, Rainbow, Trust Wallet)
+
+Animations. The origin of the Lottie files in public/lottie/ is not recorded
+in this repository. Treat them as third-party material until their source and
+licence are recorded here.
+
+Humanity Ledger is not affiliated with, endorsed by or audited by Aztec Labs,
+the Aztec Foundation, XMTP Labs or the wallet providers named above.

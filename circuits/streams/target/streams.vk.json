@@ -1,0 +1,28 @@
+{
+  "circuit": "streams",
+  "status": "experimental",
+  "statusNote": "Not for production. Known soundness issues are listed in docs/zk/MASTER_PROMPT.md (ZK-01 to ZK-07).",
+  "provingSystem": "UltraHonk",
+  "curve": "BN254",
+  "toolchain": {
+    "nargo": "1.0.0+275d3ab1a5c916c6ea73e8d6b943f685f574500c",
+    "bbJs": "5.3.0"
+  },
+  "acirArtifact": "target/zk_streams.json",
+  "verificationKey": "target/vk",
+  "vkBytes": 3680,
+  "vkSha256": "0xa79000bf70441f02ce5ec092f15771e93dfc3d990977a33de9991795bc374346",
+  "vkHeader": {
+    "logCircuitSize": 15,
+    "numPublicInputs": 11,
+    "publicInputsOffset": 5,
+    "note": "First three fields of target/vk. numPublicInputs includes the fields Barretenberg appends to the circuit's own public inputs."
+  },
+  "circuitPublicInputs": [
+    "stream_commitment",
+    "current_time",
+    "stream_nullifier"
+  ],
+  "onChainRegistry": null,
+  "onChainRegistryNote": "No VK registry is deployed on any network."
+}

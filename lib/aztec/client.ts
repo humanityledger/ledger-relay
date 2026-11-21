@@ -1,0 +1,138 @@
+// @ts-nocheck
+export const AZTEC_EXPLORER = 'https://aztecscan.xyz';
+
+
+/**
+ * Aztec mainnet explorer URL for a given transaction hash.
+ *
+ * AztecScan uses /tx-effects/0x<hash> (checked 14 Nov 2026; /tx-effect/ and /tx/ answer 404).
+ * Virtual/synthetic hashes generated server-side are never indexed on-chain, so we
+ * route them to the explorer root to avoid the "Page does not exist" 404 screen.
+ *
+ * Rules:
+ *  - Real Aztec tx hash: starts with 0x and is 66 chars (32-byte hex) → /tx-effects/
+ *  - Virtual hash (aztec-airdrop-*, or sha256 0x but >66 chars): → explorer root
+ *  - Empty/null: → explorer root
+ */
+export function explorerTxUrl(txHash: string | null | undefined): string {
+  if (!txHash) return AZTEC_EXPLORER;
+  // A real Aztec tx hash is exactly 66 chars: '0x' + 64 hex digits
+  const isRealHash = /^0x[a-fA-F0-9]{64}$/.test(txHash);
+  if (isRealHash) return `${AZTEC_EXPLORER}/tx-effects/${txHash.toLowerCase()}`;
+  // Virtual hash — route to root so user sees the live explorer, not a 404
+  return AZTEC_EXPLORER;
+}
+
+/**
+ * Safe wrapper: given a stored explorerUrl from DB (may be old /tx/ format or /tx-effect/ format),
+ * sanitise it to the correct AztecScan path format.
+ *
+ * AztecScan routes:
+ *  - /tx-effects/0x<hash> — transaction effect detail
+ *  - /address/:addr   — account page
+ *  - /               — root explorer (fallback for virtual hashes)
+ */
+export function sanitiseExplorerUrl(stored: string | null | undefined): string {
+  if (!stored) return AZTEC_EXPLORER;
+
+  if (stored.includes('/tx-effects/0x') || stored.includes('/address/')) return stored;
+
+  // Older formats (/tx/0x…, /tx-effect/…, a bare hash, with or without 0x): rebuilt as /tx-effects/0x…
+  const hashMatch = stored.match(/(?:0x)?([a-fA-F0-9]{64})$/);
+  if (hashMatch) return `${AZTEC_EXPLORER}/tx-effects/0x${hashMatch[1].toLowerCase()}`;
+
+  // Root or just the explorer domain — fine
+  if (stored.startsWith('https://aztecscan.xyz')) return stored;
+
+  // Unknown format — fall back to root
+  return AZTEC_EXPLORER;
+}
+
+/**
+ * Aztec mainnet explorer URL for a given address.
+ */
+export function explorerAddressUrl(address: string): string {
+  return `${AZTEC_EXPLORER}/address/${address}`;
+}
+
+/**
+ * Truncate an Aztec address for display.
+ */
+export function truncateAztecAddress(addr: string, chars = 8): string {
+  if (!addr || addr.length <= chars * 2 + 3) return addr;
+  return `${addr.slice(0, chars)}...${addr.slice(-chars)}`;
+}
+
+const AZTEC_MAINNET_RPC = 'https://api.aztec.network/aztec-mainnet/api/v1';
+
+/**
+ * Probe the Aztec Mainnet node to get current network info.
+ * Returns null if unreachable.
+ *
+ * Uses direct HTTP JSON-RPC fetch instead of SDK client to avoid
+ * loading the full Aztec.js Node bundle in browser context.
+ */
+export async function probeMainnetNode(): Promise<{
+  blockNumber: number;
+  nodeVersion: string;
+  l1ChainId: number;
+  rollupVersion: number;
+  rollupAddress: string;
+  latencyMs: number;
+} | null> {
+  const start = Date.now();
+  try {
+    const [blockRes, nodeRes] = await Promise.all([
+      fetch(AZTEC_MAINNET_RPC, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'node_getBlockNumber', params: [], id: 1 }),
+        signal: AbortSignal.timeout(8000),
+      }),
+      fetch(AZTEC_MAINNET_RPC, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'node_getNodeInfo', params: [], id: 2 }),
+        signal: AbortSignal.timeout(8000),
+      }),
+    ]);
+
+    if (!blockRes.ok || !nodeRes.ok) throw new Error('[Aztec] Node RPC returned non-200');
+
+    const blockData = await blockRes.json();
+    const nodeData = await nodeRes.json();
+
+    const blockNumber = Number(blockData.result ?? 0);
+    const info = nodeData.result ?? {};
+
+    return {
+      blockNumber,
+      nodeVersion: info.nodeVersion ?? 'unknown',
+      l1ChainId: Number(info.l1ChainId ?? 1),
+      rollupVersion: Number(info.rollupVersion ?? 0),
+      rollupAddress: info.l1ContractAddresses?.rollupAddress ?? '',
+      latencyMs: Date.now() - start,
+    };
+  } catch (e: any) {
+    console.warn('[Aztec] Node probe failed:', e.message);
+    return null;
+  }
+}
+
+
+export function deriveSecretKeyFromEvm(evmAddress: string): string {
+  throw new Error('CUSTODIAL_DERIVE_RETIRED');
+}
+
+/**
+ * Canonical Sponsored FPC on the Aztec TEST network (v6.0.0). Alpha mainnet
+ * has no sponsored fee payer: there a transaction pays in Fee Juice
+ * (lib/aztec/fees.ts). The previous value here was an older testnet
+ * release's address, described as mainnet.
+ */
+export const SPONSORED_FPC_ADDRESS = '0x2d8fff82a3b0c15d0a89169e7d8d043e079ab94d52031f1de1e4972ebad169d3';
+
+export function getFpcAddress(): string {
+  return process.env.AZTEC_FPC_ADDRESS ?? SPONSORED_FPC_ADDRESS;
+}
+

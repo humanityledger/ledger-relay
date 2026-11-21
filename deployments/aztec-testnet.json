@@ -1,0 +1,712 @@
+{
+  "$comment": "Machine-readable record of what Humanity Ledger has deployed on Aztec testnet. Checked against the live node by .github/workflows/aztec-deployments.yml (test/live/aztec-deployments.live.test.ts). docs/AZTEC_TESTNET_DEPLOYMENTS.md is the human-readable version of this file. Entries with tracksCurrentArtifact=true must match the artifact committed today; older entries keep the class they were deployed with, which the live check still confirms on the node.",
+  "network": {
+    "name": "Aztec testnet (Alpha V6, Tierra)",
+    "nodeUrl": "https://aztec-testnet.drpc.org",
+    "l1ChainId": 11155111,
+    "rollupVersion": 679261766
+  },
+  "sponsoredFpc": "0x2d8fff82a3b0c15d0a89169e7d8d043e079ab94d52031f1de1e4972ebad169d3",
+  "tokens": {
+    "zkUSDC": {
+      "address": "0x0753220b168733678aec0b69efd3866127babba191e98383740f5ec4cd3566a5",
+      "decimals": 6
+    },
+    "zkDAI": {
+      "address": "0x187223e54a0492d76ef6f08d4a5dc0ac5428e59e588a09d65ffd42c22ac149f9",
+      "decimals": 18
+    },
+    "zkETH": {
+      "address": "0x1d612bbb8f52e5e5b3390528664a6af4e262eb47362d6675b23c835d20cd339e",
+      "decimals": 18
+    }
+  },
+  "contracts": [
+    {
+      "name": "IdentityCredential",
+      "address": "0x174e4652dd027f6de9dfe025d46fbfc4378039f19e67c53a34803a8079db56f0",
+      "classId": "0x2d3cef07dd06a489ccc524334c38e694f27d5757059d485cb04e20983d3d68ad",
+      "artifact": "contracts/aztec/identity/target/identity_credential-IdentityCredential.json",
+      "holdsPrivateBalance": false,
+      "keyed": false,
+      "status": "active",
+      "deployedOn": "2026-11-04",
+      "note": "Deployed with placeholder roots (identity 0x12345678, sanctions 0x87654321): no member can claim until the issuer sets a real identity root. Its class predates the expiry bound (SEC-I7) and the root guard of 5 Nov 2026.",
+      "tracksCurrentArtifact": false
+    },
+    {
+      "name": "PrivateEscrow",
+      "address": "0x1d88555bead4ba81d1f93a16dd8366b5659d062928af1e57f94a75e08d343097",
+      "classId": "0x1e8340e05494363e696ad4f474ee2fdc88250887d69ce2c81706967ad84351d0",
+      "artifact": "contracts/aztec/escrow/target/private_escrow-PrivateEscrow.json",
+      "holdsPrivateBalance": true,
+      "keyed": false,
+      "status": "do-not-use",
+      "deployedOn": "2026-11-04",
+      "note": "Deployed without public keys. Tokens deposited here become notes owned by a contract that has no nullifier key, so no PXE can ever spend them: deposits would be locked. Escrows must use a keyed instance (scripts/aztec/deploy-keyed.ts).",
+      "tracksCurrentArtifact": false
+    },
+    {
+      "name": "PaymentStream",
+      "address": "0x0567a641e6e8e10b99bbe9f7c0787763b7ef6cfc75ef7e2c59d55dd754e2c895",
+      "classId": "0x07c8ec07c1c067cc3ddad361337a2418c48bbf818317792972d68ce1ed70186d",
+      "artifact": "contracts/aztec/streams/target/payment_stream-PaymentStream.json",
+      "holdsPrivateBalance": true,
+      "keyed": false,
+      "status": "do-not-use",
+      "deployedOn": "2026-11-04",
+      "note": "Deployed without public keys; same consequence as the PrivateEscrow instance above. Streams must use a keyed instance.",
+      "tracksCurrentArtifact": false
+    },
+    {
+      "name": "PrivateEscrow v1 (keyed, end-to-end run)",
+      "address": "0x1e03bcfe5c8b325ffb5a6252b25f3cd9126960d009734dbfbf9d93173ec1d182",
+      "classId": "0x1e8340e05494363e696ad4f474ee2fdc88250887d69ce2c81706967ad84351d0",
+      "artifact": "contracts/aztec/escrow/target/private_escrow-PrivateEscrow.json",
+      "holdsPrivateBalance": true,
+      "keyed": true,
+      "status": "settled",
+      "deployedOn": "2026-11-04",
+      "note": "Deployed by the workflow 'Aztec escrow e2e (testnet)', run 41865790651: keyed universal deployment, deposit (tx 0x10700502…5f13, block 18445) and claim (tx 0x10fb36c0…23f2, block 18447). Custodies a throwaway test token; settled. Shows the per-agreement pattern with the first PrivateEscrow class (before the deposit-expiration fix); not an instance for new deposits.",
+      "tracksCurrentArtifact": false
+    },
+    {
+      "name": "PrivateEscrow v2 (keyed, end-to-end run)",
+      "address": "0x062677942994e9d9bbc4bd9c47094b1e90d81caf3716867fb88098d144c191b9",
+      "classId": "0x163f855efb404a868d60e9ebd2352fd8317c54bc054561348c1cf764b2cdf873",
+      "artifact": "contracts/aztec/escrow/target/private_escrow-PrivateEscrow.json",
+      "holdsPrivateBalance": true,
+      "keyed": true,
+      "status": "reference",
+      "tracksCurrentArtifact": false,
+      "deployedOn": "2026-11-04",
+      "note": "Current PrivateEscrow class (deposit expiration bounded by the deadline), published with this deployment. Workflow 'Aztec escrow e2e (testnet)' run 41881180186: one escrow claimed, one refunded after its deadline; empty afterwards. A reference instance, not one for new deposits: each agreement gets its own keyed instance. Superseded on 5 Nov 2026 by the class with escrow_view (AZ-21)."
+    },
+    {
+      "name": "PaymentStream v2 (keyed, end-to-end run)",
+      "address": "0x2a56c0d41aefa6a6eaae89611be7aaab3ac0aad91faf10fec26277ca9e689f1b",
+      "classId": "0x2de5fa9bcca0762779eeb30892cabdc550db12a0a755840a79ada60ecbf8783e",
+      "artifact": "contracts/aztec/streams/target/payment_stream-PaymentStream.json",
+      "holdsPrivateBalance": true,
+      "keyed": true,
+      "status": "reference",
+      "tracksCurrentArtifact": false,
+      "deployedOn": "2026-11-04",
+      "note": "Current PaymentStream class (overflow-free accrual, no self-streams), published with this deployment. Run 41881180186: stream of 20 test tokens created, 5 withdrawn within accrual. A reference instance, not one for new streams. Superseded on 5 Nov 2026 by the class with sender cancel (SEC-S12)."
+    },
+    {
+      "name": "PaymentStream v3 (keyed, end-to-end run)",
+      "address": "0x2bd80a8d2dabcf30c40e656929b0234d68b03b92cce6eb027847e6ed75737a03",
+      "classId": "0x222a75a82bb2b83dd7be88c60d0c6efd044a2e7d548215ca6ff64792d5560756",
+      "artifact": "contracts/aztec/streams/target/payment_stream-PaymentStream.json",
+      "holdsPrivateBalance": true,
+      "keyed": true,
+      "status": "reference",
+      "tracksCurrentArtifact": false,
+      "deployedOn": "2026-11-05",
+      "note": "Class with sender cancel (SEC-S12). Run 41999587163: deployed in block 19342; two streams; withdrawal within accrual, cancel by the sender (block 19352), withdrawal after the cancel rejected by the node ('Existing nullifier'). Stream 2 (5 test tokens) stays locked: the run's keys were discarded. Superseded on 5 Nov 2026 by the class with stream_view (SEC-S13)."
+    },
+    {
+      "name": "IdentityCredential v2 (end-to-end run)",
+      "address": "0x10a7799394def50fc1bc2cfebe549bf2be029cff2e75c68b685badef1530d77c",
+      "classId": "0x090cebe96c81014a14c8408951ca7d0310f517864b15b57df19f045d4cb289ff",
+      "artifact": "contracts/aztec/identity/target/identity_credential-IdentityCredential.json",
+      "holdsPrivateBalance": false,
+      "keyed": false,
+      "status": "reference",
+      "tracksCurrentArtifact": false,
+      "deployedOn": "2026-11-05",
+      "note": "Class with the expiry bound (SEC-I7) and the root guard. Run 41999587163: deployed with a placeholder root (block 19355); the throwaway issuer published a real depth-32 root (block 19356); a member claimed in scope 1 (block 19358); a second claim in the same scope and a root change by a non-issuer were refused. Superseded on 5 Nov 2026 by the class with the root grace period (SEC-I8) and issuer rotation (SEC-I9)."
+    },
+    {
+      "name": "IdentityCredential v3 (end-to-end run)",
+      "address": "0x07c1380971e0349643892f2784cfeeb625ace863c86a3b3eae975f27cfa076f3",
+      "classId": "0x1be813182640bfe08c2dea56bc3f96a7192b380a8dadc8210fc27ae0867e6c06",
+      "artifact": "contracts/aztec/identity/target/identity_credential-IdentityCredential.json",
+      "holdsPrivateBalance": false,
+      "keyed": false,
+      "status": "reference",
+      "tracksCurrentArtifact": true,
+      "deployedOn": "2026-11-05",
+      "note": "Class with the root grace period (SEC-I8) and two-step issuer rotation (SEC-I9). Run 42023143254: deployed with a placeholder root (block 19525, tx 0x0ca97aeb5b781274820b35e41c92c36bd02ac6d8ded9149c673ba82df1635e2f); the issuer published a real depth-32 root (19528); a member claimed in scope 1 (19530); the issuer replaced the root (19532) and a claim against the replaced root landed within the grace period (19534); the issuer proposed (19535) and the new issuer accepted (19537); the previous issuer was then refused."
+    },
+    {
+      "name": "PrivateEscrow v3 (keyed, end-to-end run)",
+      "address": "0x0253dbdd1e81bb19bcfb0401c5d64d6d0337c0dc113663c67fc6bf9c87bf8a7f",
+      "classId": "0x1fc9702de2946be7308126990f4cf3b8a3fbe9a4c53dc072d9ccb95bf9f04b5e",
+      "artifact": "contracts/aztec/escrow/target/private_escrow-PrivateEscrow.json",
+      "holdsPrivateBalance": true,
+      "keyed": true,
+      "status": "reference",
+      "tracksCurrentArtifact": false,
+      "deployedOn": "2026-11-05",
+      "note": "Class with escrow_view (AZ-21). Run 42030688268: keyed deploy that published the class (block 19563, tx 0x1bb4b2696fa3cbbcd6ffea65d35b88c653307d262aeb6765fb8c5318ec8620c2); escrow 1 deposit (19564), escrow_view read by both parties, claim (19568), the sender's view then reports it settled; escrow 2 deposit (19566), claim after the deadline refused, refund (19577). Both escrows settled; nothing left in the instance. Pre-fee class. It no longer tracks the current artifact (16 November 2026)."
+    },
+    {
+      "name": "PaymentStream v4 (keyed, end-to-end run)",
+      "address": "0x27fc79965b3a5d5b9bb3c2178527e8711b2b8ac8ce73be84c50e404c9b3d799d",
+      "classId": "0x1fd6afbe0bffe6a7cb675927dedc0aed886a46bf7c6d58edc32854af073701f2",
+      "artifact": "contracts/aztec/streams/target/payment_stream-PaymentStream.json",
+      "holdsPrivateBalance": true,
+      "keyed": true,
+      "status": "reference",
+      "tracksCurrentArtifact": false,
+      "deployedOn": "2026-11-05",
+      "note": "Class with stream_view (SEC-S13). Run 42030688268: keyed deploy that published the class (block 19570, tx 0x274acaf9bc287080495267f0352b9a56dfe01737a79dc42a8ad7736e88f9a0c9); stream 1 (19571) and stream 2 (19573); withdraw 5 (19575), after which stream_view gave the sender the live state at index 1, not its stale copy; cancel (19580), after which the recipient's view shows the stream not live. Stream 2 (5 test tokens) remains in the instance. Pre-fee class. It no longer tracks the current artifact (16 November 2026)."
+    },
+    {
+      "name": "PrivateEscrow v3, agreement opened with openEscrow (end-to-end run)",
+      "address": "0x12cf33312a1f026163492cea08f954c68e77914023be12850ffb2f0dc4590355",
+      "classId": "0x1fc9702de2946be7308126990f4cf3b8a3fbe9a4c53dc072d9ccb95bf9f04b5e",
+      "artifact": "contracts/aztec/escrow/target/private_escrow-PrivateEscrow.json",
+      "holdsPrivateBalance": true,
+      "keyed": true,
+      "status": "settled",
+      "tracksCurrentArtifact": false,
+      "deployedOn": "2026-11-05",
+      "note": "Run 42030688268: deployed by openEscrow (block 19594, tx 0x13b184c657e37f667bf18d84d7e89762e463c650e45dde1051a84bbd12280c8a), deposit of 3 (19595); acceptInvite refused a tampered invitation and registered the genuine one; confirmAgreement found every field equal to the stored note and an overstated amount was caught; the recipient claimed (19597). Pre-fee class. It no longer tracks the current artifact (16 November 2026)."
+    },
+    {
+      "name": "PrivateEscrow fee baseline, zero treasury (superseded, never deployed)",
+      "address": null,
+      "classId": "0x177021740d92d13f78e3f96a5bd3447eeb268cb6e9073e88832d14856b66e0ee",
+      "artifact": "contracts/aztec/escrow/target/private_escrow-PrivateEscrow.json",
+      "holdsPrivateBalance": true,
+      "keyed": false,
+      "status": "not-deployed",
+      "tracksCurrentArtifact": false,
+      "note": "Superseded on 17 November 2026. This class was compiled when TREASURY in the source was AztecAddress { inner: 0 }; the client refuses it. Never deployed, no address. Kept as history; it is not a current class.",
+      "supersededBy": "0x165090de7e22e636ed3c392069f26895eca9600c5355d5766265b84d59c6f143"
+    },
+    {
+      "name": "PrivateEscrow with the designated treasury and the 16 November fee baseline (superseded, never deployed)",
+      "address": null,
+      "classId": "0x2ade615cc7f4d8c2ceb1cca4dec6818abab1fb7b7c0a43e7f36d3369e39504c6",
+      "artifact": "contracts/aztec/escrow/target/private_escrow-PrivateEscrow.json",
+      "holdsPrivateBalance": true,
+      "keyed": false,
+      "status": "not-deployed",
+      "tracksCurrentArtifact": false,
+      "note": "Superseded on 18 November 2026 by the closed-alpha class (operator decisions OD-2 and OD-7: no protocol fee, at most 100 HLC). Never deployed, no address. Kept as history; it is not a current class.",
+      "supersededBy": "0x165090de7e22e636ed3c392069f26895eca9600c5355d5766265b84d59c6f143"
+    },
+    {
+      "name": "PrivateEscrow, closed alpha wave 1: no protocol fee, at most 100 HLC (not deployed)",
+      "address": null,
+      "classId": "0x165090de7e22e636ed3c392069f26895eca9600c5355d5766265b84d59c6f143",
+      "artifact": "contracts/aztec/escrow/target/private_escrow-PrivateEscrow.json",
+      "holdsPrivateBalance": true,
+      "keyed": false,
+      "status": "not-deployed",
+      "tracksCurrentArtifact": true,
+      "note": "Class of the artifact the \"Aztec contracts\" workflow compiled with Aztec 6.0.0 (run 44287098692, committed on the branch by CI) from the source with FEE_BPS 0, MIN_FEE 0 and MAX_AMOUNT 100_000_000 (OD-2, OD-7, signed by Stefan Antonio Cirisanu on 18 November 2026). TREASURY in the source is the designated 0x177395a38df8c95a572d3e7591240312b2fddbaf14d294d9e1443f3b0d55faed; with no fee it receives nothing. Computed with getContractClassFromArtifact by scripts/aztec/print-class-ids.mjs in workflow run 44288052113. TXE in contracts/aztec/escrow (run 44287098692): 24 tests passed. No instance and no address. Nothing was sent on Alpha. There is no external audit.",
+      "artifactSha256": "645211d00d4b6f4e4ca9342b29f068d4e6cc7e4974c781261ba073bba514221f"
+    },
+    {
+      "name": "PaymentStream fee baseline, zero treasury (superseded, never deployed)",
+      "address": null,
+      "classId": "0x2c22f32674231c50fe77c970d5f604f9a5bd60f9dd800bd575c1f6f89eba1ae3",
+      "artifact": "contracts/aztec/streams/target/payment_stream-PaymentStream.json",
+      "holdsPrivateBalance": true,
+      "keyed": false,
+      "status": "not-deployed",
+      "tracksCurrentArtifact": false,
+      "note": "Superseded on 17 November 2026. This class was compiled when TREASURY in the source was AztecAddress { inner: 0 }; the client refuses it. Never deployed, no address. Kept as history; it is not a current class.",
+      "supersededBy": "0x0f2ba459de8636b73e86365de0d9a8d775b3b82bc47f39333dd17deeef6fc1e3"
+    },
+    {
+      "name": "PaymentStream with the designated treasury, before IA-01 (superseded, never deployed)",
+      "address": null,
+      "classId": "0x0251d1760c1ddfdd8fe220c045f6e6c7f3197f4b2b278637eaa250f8cbc6777b",
+      "artifact": "contracts/aztec/streams/target/payment_stream-PaymentStream.json",
+      "holdsPrivateBalance": true,
+      "keyed": false,
+      "status": "not-deployed",
+      "tracksCurrentArtifact": false,
+      "note": "Superseded on 18 November 2026 by the internal audit fix IA-01 (a cancel never fails because of the fee; docs/audit/INTERNAL_AUDIT_2026-11-18.md). Never deployed, no address. Kept as history; it is not a current class.",
+      "supersededBy": "0x0f2ba459de8636b73e86365de0d9a8d775b3b82bc47f39333dd17deeef6fc1e3"
+    },
+    {
+      "name": "PaymentStream with the designated treasury and IA-01 cancel fee (superseded, never deployed)",
+      "address": null,
+      "classId": "0x07e2947d207b8980d5375c893bbe2de3bd535e1fd9e688e1119416f463dacca7",
+      "artifact": "contracts/aztec/streams/target/payment_stream-PaymentStream.json",
+      "holdsPrivateBalance": true,
+      "keyed": false,
+      "status": "not-deployed",
+      "tracksCurrentArtifact": false,
+      "note": "Superseded on 18 November 2026 by the closed-alpha class (operator decisions OD-2 and OD-7: no protocol fee, at most 100 HLC). Never deployed, no address. Kept as history; it is not a current class.",
+      "supersededBy": "0x0f2ba459de8636b73e86365de0d9a8d775b3b82bc47f39333dd17deeef6fc1e3"
+    },
+    {
+      "name": "PaymentStream, closed alpha wave 1: no protocol fee, at most 100 HLC (not deployed)",
+      "address": null,
+      "classId": "0x0f2ba459de8636b73e86365de0d9a8d775b3b82bc47f39333dd17deeef6fc1e3",
+      "artifact": "contracts/aztec/streams/target/payment_stream-PaymentStream.json",
+      "holdsPrivateBalance": true,
+      "keyed": false,
+      "status": "not-deployed",
+      "tracksCurrentArtifact": true,
+      "note": "Class of the artifact the \"Aztec contracts\" workflow compiled with Aztec 6.0.0 (run 44287098692, committed on the branch by CI) from the source with FEE_BPS 0, STREAM_MIN_FEE 0 and MAX_AMOUNT 100_000_000 (OD-2, OD-7, signed by Stefan Antonio Cirisanu on 18 November 2026), with IA-01's cancel_fee (which pays 0 at a zero schedule). Computed with getContractClassFromArtifact by scripts/aztec/print-class-ids.mjs in workflow run 44288052113. TXE in contracts/aztec/streams (Security review run 44288737213, job 134748091139): 35 tests passed. No instance and no address. Nothing was sent on Alpha. There is no external audit.",
+      "artifactSha256": "c154bcd8e3c0c6e2c82eef37a64b01ab5b36a8f2f3182cfc6c2fd033a4b3a304"
+    }
+  ],
+  "e2eRuns": [
+    {
+      "workflow": "Aztec escrow e2e (testnet)",
+      "run": 42030688268,
+      "date": "2026-11-05",
+      "result": "all checks passed",
+      "instances": {
+        "escrow": "0x0253dbdd1e81bb19bcfb0401c5d64d6d0337c0dc113663c67fc6bf9c87bf8a7f",
+        "stream": "0x27fc79965b3a5d5b9bb3c2178527e8711b2b8ac8ce73be84c50e404c9b3d799d",
+        "identity": "0x024a1a10f3dfd34b72347edb484bfbf5578b13fda79273f4fed4ad00954993cb",
+        "agreementEscrow": "0x12cf33312a1f026163492cea08f954c68e77914023be12850ffb2f0dc4590355"
+      },
+      "transactions": [
+        {
+          "step": "deploy account sender",
+          "txHash": "0x0058ba8aa90fd430455dbf54959814bce26459cf8b551ae006bcd7119df6db03",
+          "block": 19554
+        },
+        {
+          "step": "deploy account recipient",
+          "txHash": "0x1287ee46d39d21e28ad17e34e0e9ff5f2d0b517d96ef68200a44bb1b67c74425",
+          "block": 19556
+        },
+        {
+          "step": "mint to sender (public)",
+          "txHash": "0x2900ab903094376e5b85989dfee79e131dd59595bac19550eb7d6420b2999387",
+          "block": 19559
+        },
+        {
+          "step": "shield into sender private balance",
+          "txHash": "0x0e2fbe1978a5ca45de3646303da523ce165aa779fecc87c09580aa05a9a13885",
+          "block": 19561
+        },
+        {
+          "step": "deploy keyed PrivateEscrow (and publish its class)",
+          "txHash": "0x1bb4b2696fa3cbbcd6ffea65d35b88c653307d262aeb6765fb8c5318ec8620c2",
+          "block": 19563
+        },
+        {
+          "step": "escrow 1: deposit 25 (deadline +2 h)",
+          "txHash": "0x2f76cb066329b8d746c32342b72790eadcebe2388e04e37d020f5d738e7e86dc",
+          "block": 19564
+        },
+        {
+          "step": "escrow 2: deposit 10 (deadline +7 min)",
+          "txHash": "0x262980d61c1e38f6bc8b69b40a4d167164aa3e14d44a4fb57db8dbad5dc429c8",
+          "block": 19566
+        },
+        {
+          "step": "escrow 1: claim by the recipient",
+          "txHash": "0x06e7662854f63c53d7d024591a0702b55db69aae32844450529b125ad180eaa4",
+          "block": 19568
+        },
+        {
+          "step": "deploy keyed PaymentStream (and publish its class)",
+          "txHash": "0x274acaf9bc287080495267f0352b9a56dfe01737a79dc42a8ad7736e88f9a0c9",
+          "block": 19570
+        },
+        {
+          "step": "stream: create 20 at 10,000 units/s, started 15 min ago",
+          "txHash": "0x0b75d12f4e4691e8b076d36458a21b673e0ab1868ec617fa15c87146a2a5a81b",
+          "block": 19571
+        },
+        {
+          "step": "stream 2: create 5 in the same instance",
+          "txHash": "0x2d89e6f43d74ed9b0740a4874b4e255ab541817868f5a0bf9c1971158f5ba9b6",
+          "block": 19573
+        },
+        {
+          "step": "stream: withdraw 5 (within accrual)",
+          "txHash": "0x2e020c1fcc1de912ab8b00a15443af3a4ac360b2d0fcd7792e4c6fc8df193185",
+          "block": 19575
+        },
+        {
+          "step": "escrow 2: refund to the sender after the deadline",
+          "txHash": "0x074f22d4557b77a8fe5084235f37162f29f00af549ac5172b3f2ed3a087a413a",
+          "block": 19577
+        },
+        {
+          "step": "stream: cancel by the sender",
+          "txHash": "0x1ddc4b00d5eb41d9b86ecc31442f93e5f0405024647c04c6f4027e0dad383bd0",
+          "block": 19580
+        },
+        {
+          "step": "deploy IdentityCredential with a placeholder root",
+          "txHash": "0x2a31319ee9c49e267bd5b3a85daf5cd93af1cee27c5f040f908af2ca5ed0811c",
+          "block": 19582
+        },
+        {
+          "step": "identity: the issuer publishes the real root",
+          "txHash": "0x161aa4e36daf86d6cc10c3b3be809c7db8d0c123bafbe35a46722f3a3b34ac72",
+          "block": 19583
+        },
+        {
+          "step": "identity: the member claims in scope 1",
+          "txHash": "0x1a47ebc1bbdecfe6397c891f9c17b40d10aef8b796577e9142787037665f6b21",
+          "block": 19585
+        },
+        {
+          "step": "identity: the issuer replaces the root",
+          "txHash": "0x1d1dd45575f9b91944acd140c29ef1b12d854d26cd57885a646c709b8bf2646b",
+          "block": 19587
+        },
+        {
+          "step": "identity: a claim against the replaced root lands within the grace period",
+          "txHash": "0x165ce6cf22e87f01917fd7d51c8e2fa35b23c82aed0c8440f7e5780cf2f650e1",
+          "block": 19589
+        },
+        {
+          "step": "identity: the issuer proposes a new issuer",
+          "txHash": "0x3060ce25150bb351484f719ce2bcfe194291475ce27e10f46528cb61864de3cb",
+          "block": 19591
+        },
+        {
+          "step": "identity: the proposed issuer accepts",
+          "txHash": "0x23bf4b211a3d0f0b5399eb41c1779d2d308983b42a6e632684b90fe94617ca7b",
+          "block": 19592
+        },
+        {
+          "step": "agreement: openEscrow, keyed deploy",
+          "txHash": "0x13b184c657e37f667bf18d84d7e89762e463c650e45dde1051a84bbd12280c8a",
+          "block": 19594
+        },
+        {
+          "step": "agreement: openEscrow, deposit 3",
+          "txHash": "0x1ee3818e7be62caf5d68297980980e25d5309c6fe974c472ab8f05e731b76015",
+          "block": 19595
+        },
+        {
+          "step": "agreement: the recipient claims with the secret from the invitation",
+          "txHash": "0x1e0f7d74fafd83e98d8b77877f0988444f97b3a458e30d156eb7b7f4d14d83c9",
+          "block": 19597
+        }
+      ],
+      "checks": [
+        "escrow_view: both parties read the stored terms; after the claim the sender sees the escrow settled",
+        "stream_view: the sender sees the live state (index 1), not its stale copy; after the cancel the recipient sees the stream not live",
+        "identity: root of a three-member tree from lib/aztec/credential-tree.ts; the member at index 5 claims with its path; grace-period claim and two-step rotation as in run 42023143254",
+        "agreement: confirmAgreement matches every field of the invitation against the stored note; an invitation overstating the amount is caught",
+        "every escrow, stream and identity check of run 42023143254 repeated"
+      ],
+      "note": "IdentityCredential instance 0x024a1a10f3dfd34b72347edb484bfbf5578b13fda79273f4fed4ad00954993cb (class 0x1be81318…6c06, the current class already recorded as IdentityCredential v3) was deployed in block 19582, tx 0x2a31319ee9c49e267bd5b3a85daf5cd93af1cee27c5f040f908af2ca5ed0811c."
+    },
+    {
+      "workflow": "Aztec escrow e2e (testnet)",
+      "run": 42023143254,
+      "date": "2026-11-05",
+      "result": "all checks passed",
+      "instances": {
+        "escrow": "0x025b1edc8823968fe7e49de3b1af77d59884aab955954686f4259ccaba8019ae",
+        "stream": "0x19b24c2a7308fa01c01d2060b957c9b160dc2d9c545fb64406aadda8f5b2232e",
+        "identity": "0x07c1380971e0349643892f2784cfeeb625ace863c86a3b3eae975f27cfa076f3",
+        "agreementEscrow": "0x2008decef28858d86bb7efda63a1c56b0d82384c1626916e827a406e9d2522b9"
+      },
+      "transactions": [
+        {
+          "step": "deploy account sender",
+          "txHash": "0x2435779e413e72cd770aa1168eb887ca877769dae0e05e1d402540e7aa6dabbd",
+          "block": 19496
+        },
+        {
+          "step": "deploy account recipient",
+          "txHash": "0x0a51dc914a1ff4d62513984a7818479df347af638c4f5a93f972bf4734c0182c",
+          "block": 19498
+        },
+        {
+          "step": "mint to sender (public)",
+          "txHash": "0x15788c322251be3321e82f259eadda731b6617b05dbb17c8a5d851a7302fd14e",
+          "block": 19500
+        },
+        {
+          "step": "shield into sender private balance",
+          "txHash": "0x14b0d6e0ab942ce4439bbc16acbecdfd72f532e298de98b5bc0e99378e8050eb",
+          "block": 19502
+        },
+        {
+          "step": "deploy keyed PrivateEscrow",
+          "txHash": "0x1843da24d0f987cc2c90690a00d916facbd40ce3d295c0914eeb6b7e87a35c5f",
+          "block": 19504
+        },
+        {
+          "step": "escrow 1: deposit 25 (deadline +2 h)",
+          "txHash": "0x0382a55d3e1cfd64070a0ee6b3c70189680f3104cb2cd8a8e164310fa5325189",
+          "block": 19505
+        },
+        {
+          "step": "escrow 2: deposit 10 (deadline +7 min)",
+          "txHash": "0x11daffc1198598fb3a466ae8276e36291b9943f3bc3e20e912f7f0b895a28e0c",
+          "block": 19507
+        },
+        {
+          "step": "escrow 1: claim by the recipient",
+          "txHash": "0x1a940b9559ebb10cc013a191c62751d2da0b95fbeffa4f70eee4a0363ded65ba",
+          "block": 19509
+        },
+        {
+          "step": "deploy keyed PaymentStream",
+          "txHash": "0x08075ae2c62f177fc85bba1a9e41d9c728ed47995ae9f5e69dde06f65a9b9646",
+          "block": 19512
+        },
+        {
+          "step": "stream: create 20 at 10,000 units/s, started 15 min ago",
+          "txHash": "0x1aa8338d431609bc0ae210ed31fda8d0441c81989fb433483d3e0f37996f6378",
+          "block": 19513
+        },
+        {
+          "step": "stream 2: create 5 in the same instance",
+          "txHash": "0x1632aeb7cda836fda506c3366f4f6a2f067f0968486a11431c553a8886cf6b56",
+          "block": 19515
+        },
+        {
+          "step": "stream: withdraw 5 (within accrual)",
+          "txHash": "0x283742d7cafe67001dc3539a8564756aa7dee2ab020d5ac81d120d6dffccd4c2",
+          "block": 19517
+        },
+        {
+          "step": "escrow 2: refund to the sender after the deadline",
+          "txHash": "0x14689ca9eac5ae9fbee65e719b5241a79b6649d21b8f3c6c48540fa25f0bfb89",
+          "block": 19519
+        },
+        {
+          "step": "stream: cancel by the sender",
+          "txHash": "0x08092020a9b43f388eeb0ded171a213ddfa2111a8ad0eb9c6b66351f73e8d533",
+          "block": 19521
+        },
+        {
+          "step": "deploy IdentityCredential with a placeholder root",
+          "txHash": "0x0ca97aeb5b781274820b35e41c92c36bd02ac6d8ded9149c673ba82df1635e2f",
+          "block": 19525
+        },
+        {
+          "step": "identity: the issuer publishes the real root",
+          "txHash": "0x1f66f1203a6ce484018ea690ec8d894686d8b49d05aeece20ff68ac16f231be9",
+          "block": 19528
+        },
+        {
+          "step": "identity: the member claims in scope 1",
+          "txHash": "0x21015aac1f87a8776fcaed627408eab4a2718ea4c1fa585d1e243a5ad6b0879e",
+          "block": 19530
+        },
+        {
+          "step": "identity: the issuer replaces the root",
+          "txHash": "0x117dcab624b067bc82a13c1b7db8c9800c6347344f085e8860e66a3524fa90eb",
+          "block": 19532
+        },
+        {
+          "step": "identity: a claim against the replaced root lands within the grace period",
+          "txHash": "0x1f66179700fd467a44e57308b5267cd9efe2ca8e73b43d2d603c575909fa2469",
+          "block": 19534
+        },
+        {
+          "step": "identity: the issuer proposes a new issuer",
+          "txHash": "0x160f266cd228076dfb8d111cd660f6d43c930e0d1d0683b50a1275bb10ae9885",
+          "block": 19535
+        },
+        {
+          "step": "identity: the proposed issuer accepts",
+          "txHash": "0x13e710c6e24571b88e5b140f5d7b30eedae82d1ba3edbd77a4ace62a36d288b8",
+          "block": 19537
+        },
+        {
+          "step": "agreement: openEscrow (keyed deploy + deposit 3)",
+          "txHash": "0x09af70437cd18cbf3908978631911d2200ca9d75e4c0475e65b0228485d86205"
+        },
+        {
+          "step": "agreement: the recipient claims with the secret from the invitation",
+          "txHash": "0x2863bc4d04e2bd1464e49f7a6d75d788ecfe62f6d3c7a259c00d39cedaec0ea6",
+          "block": 19541
+        }
+      ],
+      "checks": [
+        "escrow claim, refund after the deadline, claim with the right secret after the deadline refused ('escrow expired')",
+        "stream withdraw within accrual; cancel splits 39.87 / 45.13 with 5 left in stream 2; withdrawal after cancel rejected by the node ('Existing nullifier')",
+        "identity: claim, duplicate claim refused, non-issuer refused, claim within the grace period of a replaced root, two-step issuer rotation, old issuer refused",
+        "agreement opened with openEscrow and accepted with acceptInvite; a tampered invitation refused ('address does not match the shared secret'); the recipient claimed 3 with the invitation's secret"
+      ],
+      "note": "The agreement escrow's deploy transaction is 0x19a95ed31cb36805828009921b57174d7fb9c13d531713e786e53179620006a9; this run did not record the blocks of the deploy and deposit (fixed in lib/aztec/agreements.ts). The claim landed in block 19541."
+    },
+    {
+      "workflow": "Aztec escrow e2e (testnet)",
+      "run": 41999587163,
+      "date": "2026-11-05",
+      "result": "all checks passed",
+      "transactions": [
+        {
+          "step": "deploy keyed PrivateEscrow",
+          "txHash": "0x12e09364551a73edd72353a0518d97ba69d7b28e85e5c84e1fa02422b361a253",
+          "block": 19330
+        },
+        {
+          "step": "escrow 1: deposit 25",
+          "txHash": "0x130a9d064edbe475a6fe153fb035021becde20affda468623547f74e60dd7776",
+          "block": 19332
+        },
+        {
+          "step": "escrow 2: deposit 10, deadline +7 min",
+          "txHash": "0x1d595ec4e9b611e6d1fccc1f4c2eb879432d4c1b3c303bad4743acd343d01f60",
+          "block": 19335
+        },
+        {
+          "step": "escrow 1: claim",
+          "txHash": "0x09c5963b1944a689f6c16fbec09cc5e64676652b51a9cc57c6cc0c019140cc6c",
+          "block": 19339
+        },
+        {
+          "step": "deploy keyed PaymentStream",
+          "txHash": "0x0a53583cdd591197c98c6a22b6ff3fbef3824e7e62becfd1ad8eefad9de58d53",
+          "block": 19342
+        },
+        {
+          "step": "stream 1: create 20",
+          "txHash": "0x0367979cc422b3f6797f84c6261b682799bb56be87cd86099b3e70f1e36c197a",
+          "block": 19344
+        },
+        {
+          "step": "stream 2: create 5",
+          "txHash": "0x004051220ab9951787a94fa74a0b4e87df9f47d3872cb35aa2d0d869a1ec0831",
+          "block": 19346
+        },
+        {
+          "step": "stream 1: withdraw 5",
+          "txHash": "0x1ea462b30c2c04defb2d0db2400998c40fe316c6022e4a1acf0a57266398533c",
+          "block": 19348
+        },
+        {
+          "step": "escrow 2: refund after the deadline",
+          "txHash": "0x01acd45f6250f971ad233011f1abb48c0aad7848ae0422f9bce61147e02a322e",
+          "block": 19350
+        },
+        {
+          "step": "stream 1: cancel by the sender",
+          "txHash": "0x2f219fe034b1bd12b6e962dca59cd31e30456776a61baf6e22f038e3c7791325",
+          "block": 19352
+        },
+        {
+          "step": "deploy IdentityCredential (placeholder root)",
+          "txHash": "0x179142fe105f3f27693ecddab5d1826237464c39d9438518965ecfc7bf17b295",
+          "block": 19355
+        },
+        {
+          "step": "identity: issuer publishes the real root",
+          "txHash": "0x2331d165dc0e7f4fd1d153fd7cefe41c7eee6b3c691f59efc20500927a07e528",
+          "block": 19356
+        },
+        {
+          "step": "identity: member claims in scope 1",
+          "txHash": "0x2e9eeceeb1be5aaa11bdca705da054ddb07a9bd1f40cafd779ad9e80cc108806",
+          "block": 19358
+        }
+      ],
+      "checks": [
+        "escrow 2 claimed with the right secret after its deadline: refused with 'escrow expired' (AZ-12)",
+        "stream 1 cancel: sender 45.13 + recipient 39.87 + 5 locked in stream 2 = 90; nothing created or lost",
+        "withdrawal from stream 1 after the cancel, sent to the node: rejected 'Invalid tx: Existing nullifier' (SEC-S12)",
+        "cancel from the stale index-0 copy: refused, here by the contract balance (stream 2 held less than it asked); the state-nullifier case with enough balance is the TXE test a_cancel_from_a_stale_copy_fails_with_funds_left",
+        "identity: no claim against the placeholder root; claim against the real root; second claim in the same scope refused (duplicate nullifier); root change by a non-issuer refused"
+      ]
+    },
+    {
+      "workflow": "Aztec escrow e2e (testnet)",
+      "run": 41881180186,
+      "date": "2026-11-04",
+      "escrow": "0x062677942994e9d9bbc4bd9c47094b1e90d81caf3716867fb88098d144c191b9",
+      "stream": "0x2a56c0d41aefa6a6eaae89611be7aaab3ac0aad91faf10fec26277ca9e689f1b",
+      "token": "0x014a90a8181c93a034f217831e353752081d4a10c462eaafd57e7d26725e02d8",
+      "sender": "0x2847e99bf22c86a646213430bfa57a9a642365e49a4189c45b71615a7eef3930",
+      "recipient": "0x0c140258bd622e4a12cf4419dc2dca5ac3dbf473fb654036370fae76223211e1",
+      "transactions": [
+        {
+          "step": "mint to sender (public)",
+          "txHash": "0x061fab448efe7f45f81c9cc3fc86aaaf8ed56bfb6bced67cb28932840b296e9c",
+          "block": 18527
+        },
+        {
+          "step": "shield 90 into sender private balance",
+          "txHash": "0x003f1172a7792ae034f050767981448e8b0b9c6d0cf2298dbb6eae8d5852f1db",
+          "block": 18528
+        },
+        {
+          "step": "escrow 1: deposit 25, deadline +2 h (authwit)",
+          "txHash": "0x0b0e0a4fb040f9a25675b35d4371b41cf563a305564d0980150d21667a74a284",
+          "block": 18531
+        },
+        {
+          "step": "escrow 2: deposit 10, deadline +7 min (authwit)",
+          "txHash": "0x2953da19194fdc716e9437d40a8a6dc85a3432290ae7c9a5db872972c2321da1",
+          "block": 18533
+        },
+        {
+          "step": "escrow 1: claim by the recipient",
+          "txHash": "0x26fae63291c3644cb43cb36bd2a4f7c6cba4dc0e14673093f821f4da696e8680",
+          "block": 18535
+        },
+        {
+          "step": "stream: create 20 at 10,000 units/s (authwit)",
+          "txHash": "0x1deacfd33ff0d45950ad5de1254b9f1809c0711cb323387cf3f71539d902d96b",
+          "block": 18538
+        },
+        {
+          "step": "stream: withdraw 5 within accrual",
+          "txHash": "0x04911e1af621aa648be48416fce752aadd7fe617fc25cb042204b869e99df3cc",
+          "block": 18540
+        },
+        {
+          "step": "escrow 2: refund to the sender after the deadline",
+          "txHash": "0x1b2a358c6ce8c236a473b4af4b142a71d30f7e42a968065c600bd7fa46b4a0f0",
+          "block": 18542
+        }
+      ],
+      "checks": [
+        "each instance's address equals the keyed instance computed locally; the node returns its keys and the committed class",
+        "sender private balance 90 -> 55 after both deposits -> 35 after the stream -> 45 after the refund; recipient 25 after the claim -> 30 after the withdrawal",
+        "escrow 2 refund before the deadline refused ('deadline not reached')",
+        "escrow 1 second claim refused ('escrow not found')",
+        "escrow 1 refund by the sender refused (by the deadline check, since its deadline had not passed)",
+        "stream withdrawal of the whole total refused ('insufficient accrued balance')",
+        "escrow 2 claim after the deadline refused (with a wrong claim secret, so this check shows the secret check; the deadline check on claims is covered by TXE tests)"
+      ]
+    },
+    {
+      "workflow": "Aztec escrow e2e (testnet)",
+      "run": 41865790651,
+      "date": "2026-11-04",
+      "escrow": "0x1e03bcfe5c8b325ffb5a6252b25f3cd9126960d009734dbfbf9d93173ec1d182",
+      "token": "0x2c67d69fbfd215119869f848e9958566789e71b31f1982c5cbe839ab9f251d93",
+      "sender": "0x019eec31bbc5a541d09455c2aa05264ecf713b692fe42f32f28794a06704cc55",
+      "recipient": "0x1abd63935a72a735b930e48a07739c5349af3cf1eab8a91af2df00b66c17e27d",
+      "transactions": [
+        {
+          "step": "mint to sender (public)",
+          "txHash": "0x09cd9e7fbd665619c52d47048f24d9957c91b02d40d8bd878857fb0c9c9e2bf8",
+          "block": 18442
+        },
+        {
+          "step": "shield into sender private balance",
+          "txHash": "0x140773382d81907e5ebbe311cdbe53766e5b95ab546e14cd5b7cba4a8f34210c",
+          "block": 18443
+        },
+        {
+          "step": "deposit into keyed escrow (authwit)",
+          "txHash": "0x10700502f17d393476d27f019601318ccbe371baea056968f858e318e0815f13",
+          "block": 18445
+        },
+        {
+          "step": "claim by recipient",
+          "txHash": "0x10fb36c09b2fcb05ba68269ccd9d579d5cc3e00feb6c8d280359cfb7022223f2",
+          "block": 18447
+        }
+      ],
+      "checks": [
+        "escrow address equals the keyed instance computed locally",
+        "instance on the node carries its own public keys",
+        "sender private balance 60 -> 35 after deposit",
+        "recipient private balance 25 after claim",
+        "a second claim is refused: 'PrivateEscrow: escrow not found'"
+      ]
+    }
+  ]
+}
