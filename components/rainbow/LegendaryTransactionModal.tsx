@@ -1,0 +1,660 @@
+"use client";
+
+import { useState, useEffect, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { GlassCard } from "./GlassCard";
+import { X, Send, Repeat, Globe, ArrowRight, Loader2, ChevronDown, Shield, Zap, CreditCard } from "lucide-react";
+import { toast } from "sonner";
+import { useAccount, useWalletClient, usePublicClient } from "wagmi";
+import { useQueryClient } from "@tanstack/react-query";
+import { encodeFunctionData, parseUnits } from "viem";
+import { TokenSelector } from "@/components/wallet/TokenSelector";
+import { InstitutionalErrorBoundary } from "@/components/ui/InstitutionalErrorBoundary";
+
+import { useEliteSwap } from "@/hooks/useEliteSwap";
+import { useGaslessSwap } from "@/hooks/useGaslessSwap";
+import { safeToFixed, safeToLocaleString } from '@/lib/utils/number-format';
+
+// ── Design Tokens (Ivory Model) ────────────────────────────────────────────────
+const BG     = "#FAF9F6";
+const INK    = "#050505";
+const MUTED  = "rgba(5,5,5,0.45)";
+const BORDER = "rgba(5,5,5,0.08)";
+const CARD   = "#FFFFFF";
+
+interface LegendaryTransactionModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  balances: any[];
+  initialMode?: "send" | "swap" | "bridge" | "buy";
+  initialSubMode?: string;
+}
+
+const CHAINS = [
+    { id: 1,     name: "Ethereum",     color: "#627EEA" },
+    { id: 137,   name: "Polygon",      color: "#8247E5" },
+    { id: 8453,  name: "Base",         color: "#0052FF" },
+    { id: 42161, name: "Arbitrum",     color: "#12AAFF" },
+    { id: 10,    name: "Optimism",     color: "#FF0420" },
+    { id: 480,   name: "World Chain",  color: "#000000" },
+    { id: 84532, name: "Base Sepolia", color: "#0052FF" },
+];
+
+function NetworkSelectorDropdown({ chain, setChain, label, disabled = false }: { chain: any; setChain: any; label: string; disabled?: boolean }) {
+    const [isOpen, setIsOpen] = useState(false);
+    const ref = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const handleClick = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setIsOpen(false); };
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+    }, []);
+
+    return (
+        <div className="flex-1 relative" ref={ref}>
+            <label className="text-[9px] font-black uppercase tracking-widest mb-1.5 block" style={{ color: MUTED }}>{label}</label>
+            <button 
+                onClick={() => !disabled && setIsOpen(!isOpen)}
+                className={`w-full border rounded-xl p-3 flex items-center justify-between hover:bg-black/[0.02] ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+                style={{ borderColor: BORDER, background: CARD }}
+            >
+                <div className="flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 rounded-full" style={{ background: chain.color }} />
+                    <span className="font-bold text-xs" style={{ color: INK }}>{chain.name}</span>
+                </div>
+                {!disabled && <ChevronDown size={14} style={{ color: MUTED }} />}
+            </button>
+            <AnimatePresence>
+                {isOpen && !disabled && (
+                    <motion.div 
+                        initial={{ opacity: 0, y: 5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 5 }}
+                        className="absolute top-full left-0 mt-2 w-[220px] bg-white border border-black/10 rounded-2xl shadow-xl overflow-hidden z-[120] p-1 text-[#050505]"
+                    >
+                        {CHAINS.map((c) => (
+                            <button
+                                key={c.id}
+                                onClick={() => { setChain(c); setIsOpen(false); }}
+                                className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-black/5 flex items-center gap-3 transition-colors"
+                            >
+                                <div className="w-3 h-3 rounded-full shadow-sm" style={{ background: c.color }} />
+                                <span className="font-bold text-xs">{c.name}</span>
+                            </button>
+                        ))}
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+}
+
+export function LegendaryTransactionModal({ 
+    isOpen, 
+    onClose, 
+    balances, 
+    initialMode = "send",
+    initialSubMode = "standard"
+}: LegendaryTransactionModalProps) {
+  const [mode, setMode] = useState<"send" | "swap" | "bridge" | "buy">(initialMode);
+  const [subMode, setSubMode] = useState<string>(initialSubMode);
+  
+  // Chain State
+  const { address, chain } = useAccount();
+  const [sourceChain, setSourceChain] = useState(CHAINS.find(c => c.id === chain?.id) || CHAINS[0]);
+  const [targetChain, setTargetChain] = useState(CHAINS[2]); // Default Base
+
+  // Asset State
+  const [fromAssetSymbol, setFromAssetSymbol] = useState(balances[0]?.symbol || "ETH");
+  const [fromAsset, setFromAsset] = useState<any>(balances[0] || null); 
+  const [toAssetSymbol, setToAssetSymbol] = useState("USDC");
+  const [toAsset, setToAsset] = useState<any>(null); 
+  
+  const [amount, setAmount] = useState("");
+  const [recipient, setRecipient] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [quote, setQuote] = useState<any>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const { executeSwap, resolveTokenAddress, status: orchestratorStatus } = useEliteSwap();
+  const queryClient = useQueryClient();
+  const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient();
+
+  useEffect(() => {
+    if (isOpen) {
+        setMode(initialMode);
+        setSubMode(initialSubMode);
+    }
+  }, [isOpen, initialMode, initialSubMode]);
+
+  useEffect(() => {
+      const asset = balances.find(b => b.symbol === fromAssetSymbol);
+      if (asset) {
+          const targetChainId = asset.chainId;
+          const chainObj = CHAINS.find(c => c.id === targetChainId);
+          if (chainObj) setSourceChain(chainObj);
+      }
+  }, [fromAssetSymbol, balances]);
+
+  useEffect(() => {
+     if (balances.length > 0 && !fromAsset) {
+         setFromAsset(balances.find(b => b.symbol === fromAssetSymbol) || balances[0]);
+     }
+  }, [balances, fromAsset, fromAssetSymbol]);
+
+  // Quote Fetcher
+  useEffect(() => {
+    if (!amount || parseFloat(amount) <= 0 || !isOpen || (mode !== 'swap' && mode !== 'bridge' && mode !== 'buy')) {
+        setQuote(null);
+        setErrorMsg(null);
+        return;
+    }
+
+    const activeFromAsset = fromAsset || balances.find(b => b.symbol === fromAssetSymbol && b.chainId === sourceChain.id);
+    const amountInUnits = parseUnits(amount, activeFromAsset?.decimals || 18);
+
+    const fetchQuote = async () => {
+        try {
+            setErrorMsg(null);
+            
+            const fromTokenAddress = activeFromAsset?.address || resolveTokenAddress(fromAssetSymbol, sourceChain.id);
+            const toTokenAddress = resolveTokenAddress(toAssetSymbol, mode === 'swap' ? sourceChain.id : targetChain.id);
+            const amountInWei = amountInUnits.toString();
+
+            if (mode === 'buy') {
+                setQuote({ price: 1.0 }); // Simplified for UI
+                return;
+            }
+
+            const res = await fetch(`/api/wallet/swap?action=quote&chainId=${sourceChain.id}&fromToken=${fromTokenAddress}&toToken=${toTokenAddress}&amount=${amountInWei}&address=${address}`);
+            if (res.ok) {
+                const data = await res.json();
+                setQuote(data);
+            } else {
+                const err = await res.json();
+                setErrorMsg(err.error || "Failed to get route");
+            }
+        } catch (e: any) {
+            console.error("Quote fetch failed", e);
+            setErrorMsg("Network error fetching quote");
+        }
+    };
+
+    const timer = setTimeout(fetchQuote, 500);
+    return () => clearTimeout(timer);
+  }, [amount, fromAssetSymbol, toAssetSymbol, sourceChain, targetChain, mode, isOpen, address, balances]);
+
+  const handleExecute = async () => {
+      if (mode === 'buy') {
+          if (!amount) return;
+          setLoading(true);
+          try {
+              toast.info("Generating Secure Link...", { id: "moonpay-gen" });
+              const currencyCode = toAssetSymbol.toLowerCase();
+              const baseCurrency = ['usd', 'eur', 'gbp'].includes(subMode.toLowerCase()) ? subMode.toLowerCase() : 'usd';
+              
+              const res = await fetch('/api/wallet/moonpay/sign', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                      walletAddress: address || "",
+                      baseCurrencyAmount: amount,
+                      baseCurrencyCode: baseCurrency,
+                      currencyCode
+                  })
+              });
+              
+              const data = await res.json();
+              if (data.url) {
+                  toast.success("Gateway Verified", { id: "moonpay-gen", description: "Opening secure session." });
+                  window.open(data.url, '_blank');
+              } else {
+                  throw new Error(data.error || "Unknown signature error");
+              }
+          } catch(e: any) {
+              toast.error("Gateway Failed", { id: "moonpay-gen", description: e.message });
+          } finally {
+              setLoading(false);
+          }
+          return;
+      }
+
+      if (!address || !walletClient) {
+          toast.error("Wallet Not Connected");
+          return;
+      }
+
+      setLoading(true);
+      try {
+          if (mode === 'send') {
+              let finalRecipient = recipient;
+
+              if (subMode === 'ens') {
+                  toast.loading("Resolving ENS Name...", { id: 'ens-resolve' });
+                  try {
+                      const { mainnetClient } = await import('@/lib/blockchain/rpc-engine');
+                      //@ts-ignore
+                      const resolvedAddress = await mainnetClient.getEnsAddress({ name: recipient });
+                      if (!resolvedAddress) throw new Error("Could not resolve ENS name");
+                      finalRecipient = resolvedAddress;
+                      toast.success("ENS Resolved", { id: 'ens-resolve', description: `Target: ${resolvedAddress.slice(0, 10)}...` });
+                  } catch (e: any) {
+                      toast.error("ENS Resolution Failed", { id: 'ens-resolve', description: e.message });
+                      setLoading(false);
+                      return;
+                  }
+              }
+
+              if (!finalRecipient || finalRecipient.length < 40) {
+                  toast.error("Invalid Recipient", { description: "Please enter a valid address" });
+                  setLoading(false);
+                  return;
+              }
+
+              const activeFromAsset = fromAsset || balances.find(b => b.symbol === fromAssetSymbol && b.chainId === sourceChain.id);
+              if (!activeFromAsset) {
+                  toast.error("Asset Not Found", { description: `Cannot find ${fromAssetSymbol} on ${sourceChain.name}` });
+                  setLoading(false);
+                  return;
+              }
+
+              const decimals = activeFromAsset?.decimals || 18;
+              toast.info("Preparing Transaction", { description: "Please confirm in your wallet..." });
+
+              let hash: string;
+              const isNative = activeFromAsset.address === '0x0000000000000000000000000000000000000000' || 
+                               activeFromAsset.address === 'native' ||
+                               fromAssetSymbol === 'ETH' || 
+                               fromAssetSymbol === 'POL' ||
+                               fromAssetSymbol === 'MATIC';
+
+              const amountInUnits = parseUnits(amount, decimals);
+
+              if (isNative) {
+                  hash = await walletClient.sendTransaction({
+                      to: finalRecipient as `0x${string}`,
+                      value: amountInUnits,
+                      chain: sourceChain as any
+                  });
+              } else {
+                  const data = encodeFunctionData({
+                      abi: [{
+                          name: 'transfer',
+                          type: 'function',
+                          stateMutability: 'nonpayable',
+                          inputs: [{ name: 'to', type: 'address' }, { name: 'amount', type: 'uint256' }],
+                          outputs: [{ type: 'bool' }]
+                      }],
+                      functionName: 'transfer',
+                      args: [finalRecipient as `0x${string}`, amountInUnits]
+                  });
+
+                  hash = await walletClient.sendTransaction({
+                      to: activeFromAsset.address as `0x${string}`,
+                      data,
+                      chain: sourceChain as any
+                  });
+              }
+
+              await fetch('/api/transactions', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                      hash,
+                      userId: address,
+                      type: 'SEND',
+                      fromChain: sourceChain.id,
+                      toChain: sourceChain.id,
+                      fromToken: activeFromAsset.address,
+                      toToken: activeFromAsset.address,
+                      fromAmount: amountInUnits.toString(),
+                      metadata: { recipient: finalRecipient, symbol: fromAssetSymbol }
+                  })
+              });
+
+              toast.success("Transfer Initiated", { description: `Broadcast successful. Hash: ${hash.slice(0, 10)}...` });
+              queryClient.invalidateQueries({ queryKey: ['portfolio-assets'] });
+              onClose();
+
+          } else if (mode === 'swap' || mode === 'bridge') {
+              if (subMode === 'limit') {
+                  const { ONEINCH_LIMIT_ORDER_V3_TYPE, get1inchOrderDomain } = await import('@/lib/blockchain/eip712');
+                  toast.loading("Generating Secure Limit Intent...", { id: 'limit-order' });
+                  try {
+                      const order = {
+                          salt: BigInt(Date.now()),
+                          makerAsset: (fromAsset?.address || '0x...') as `0x${string}`,
+                          takerAsset: (toAsset?.address || '0x...') as `0x${string}`,
+                          maker: address as `0x${string}`,
+                          receiver: address as `0x${string}`,
+                          allowedSender: '0x0000000000000000000000000000000000000000' as `0x${string}`,
+                          makingAmount: parseUnits(amount, fromAsset?.decimals || 18),
+                          takingAmount: parseUnits("0", 18), 
+                          offsets: BigInt(0),
+                          interactions: '0x' as `0x${string}`,
+                      };
+                      //@ts-ignore
+                      await walletClient.signTypedData({
+                          account: address as `0x${string}`,
+                          domain: get1inchOrderDomain(sourceChain.id),
+                          types: ONEINCH_LIMIT_ORDER_V3_TYPE,
+                          primaryType: 'Order',
+                          message: order,
+                      });
+                      toast.success("Limit Order Signed", { id: 'limit-order', description: "Order broadcasted." });
+                      onClose();
+                  } catch (e: any) {
+                      toast.error("Signature Refused", { id: 'limit-order', description: e.message });
+                  }
+                  return;
+              }
+
+              const activeFromAsset = fromAsset || balances.find(b => b.symbol === fromAssetSymbol && b.chainId === sourceChain.id);
+              const amountInUnits = parseUnits(amount, activeFromAsset?.decimals || 18);
+
+              const hash = await executeSwap({
+                  fromChain: sourceChain.id,
+                  toChain: mode === 'swap' ? sourceChain.id : targetChain.id,
+                  fromToken: activeFromAsset?.address || fromAssetSymbol,
+                  toToken: toAsset?.address || toAssetSymbol,
+                  fromAmount: amountInUnits.toString(),
+                  slippage: 0.005
+              });
+
+              if (hash) {
+                  toast.success(`Execution Initiated`, { description: "Atomic swap broadcasted." });
+                  queryClient.invalidateQueries({ queryKey: ['portfolio-assets'] });
+                  onClose();
+              }
+          }
+      } catch (e: any) {
+          console.error("Execution Failed:", e);
+          toast.error("Execution Failed", { description: e.message });
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const inputClass = `w-full bg-white border border-black/10 rounded-xl p-4 text-[#050505] font-mono text-sm outline-none focus:border-black/30 transition-all placeholder:text-black/30`;
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="absolute inset-0 bg-[#FAF9F6]/80 backdrop-blur-md"
+          />
+
+          <motion.div
+            initial={{ scale: 0.98, opacity: 0, y: 15 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.98, opacity: 0, y: 15 }}
+            className="relative w-full max-w-lg"
+          >
+            <InstitutionalErrorBoundary moduleName="Wallet">
+              <div className="p-0 border rounded-3xl overflow-hidden shadow-2xl" style={{ borderColor: BORDER, background: BG }}>
+                
+                <div className="p-6 border-b" style={{ borderColor: BORDER, background: CARD }}>
+                  <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 border rounded-xl flex items-center justify-center" style={{ borderColor: BORDER, background: BG }}>
+                              <Shield size={16} style={{ color: MUTED }} />
+                          </div>
+                          <h2 className="text-xl font-black tracking-tighter uppercase" style={{ color: INK }}>Wallet</h2>
+                      </div>
+                      <button onClick={onClose} className="p-2 transition-colors rounded-full hover:bg-black/5" style={{ color: MUTED }}>
+                          <X size={20} />
+                      </button>
+                  </div>
+
+                  <div className="flex p-1.5 rounded-xl border mb-4" style={{ borderColor: BORDER, background: BG }}>
+                      {(["send", "swap", "bridge", "buy"] as const).map((t) => (
+                          <button
+                              key={t}
+                              onClick={() => {
+                                  setMode(t);
+                                  setSubMode(t === 'buy' ? 'USD' : 'standard');
+                              }}
+                              className={`flex-1 py-2.5 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all ${mode === t ? 'bg-[#050505] text-[#FAF9F6] shadow-md' : 'text-black/40 hover:text-black/80'}`}
+                          >
+                              {t}
+                          </button>
+                      ))}
+                  </div>
+
+                  <div className="flex gap-4 px-1">
+                      {mode === 'send' && (["standard", "private", "ens"] as const).map(s => (
+                          <button key={s} onClick={() => setSubMode(s)} className={`text-[9px] font-black uppercase tracking-widest transition-colors ${subMode === s ? 'text-[#050505] underline underline-offset-4' : 'text-black/30 hover:text-[#050505]'}`}>
+                              {s === 'private' && <Shield size={8} className="inline mr-1" />}
+                              {s}
+                          </button>
+                      ))}
+                      {mode === 'swap' && (["aggregator", "limit"] as const).map(s => (
+                          <button key={s} onClick={() => setSubMode(s)} className={`text-[9px] font-black uppercase tracking-widest transition-colors ${subMode === s ? 'text-[#050505] underline underline-offset-4' : 'text-black/30 hover:text-[#050505]'}`}>{s}</button>
+                      ))}
+                  </div>
+                </div>
+
+              <div className="p-8 space-y-6" style={{ background: BG }}>
+                
+                {/* ── BUY CRYPTO MODE ── */}
+                {mode === 'buy' ? (
+                      <div className="space-y-6">
+                        <div className="border rounded-2xl p-6 relative overflow-hidden" style={{ borderColor: BORDER, background: CARD }}>
+                           <div className="flex justify-between items-end mb-4">
+                                <div className="flex-1">
+                                    <label className="text-[10px] font-black uppercase tracking-widest block mb-1" style={{ color: MUTED }}>Spend ({subMode})</label>
+                                    <input 
+                                        type="number" 
+                                        placeholder="100"
+                                        value={amount}
+                                        onChange={(e) => setAmount(e.target.value)}
+                                        className="w-full bg-transparent border-none outline-none text-4xl font-black tracking-tighter"
+                                        style={{ color: INK }}
+                                    />
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                    <div className="flex rounded-lg border p-1 gap-1" style={{ borderColor: BORDER, background: BG }}>
+                                        {['USD', 'EUR', 'GBP'].map(c => (
+                                            <button 
+                                                key={c}
+                                                onClick={() => setSubMode(c)}
+                                                className={`px-3 py-1.5 rounded text-[10px] font-black transition-all ${subMode === c ? 'bg-[#050505] text-[#FAF9F6]' : 'text-black/40 hover:text-[#050505]'}`}
+                                            >
+                                                {c}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                           </div>
+                        </div>
+
+                        <div className="flex justify-center -my-3 relative z-10">
+                            <div className="p-2 rounded-full border shadow-sm" style={{ borderColor: BORDER, background: CARD }}>
+                                <ArrowRight size={14} style={{ color: MUTED }} className="rotate-90" />
+                            </div>
+                        </div>
+
+                        <div className="border rounded-2xl p-6 relative" style={{ borderColor: BORDER, background: CARD }}>
+                            <div className="flex justify-between items-end">
+                                <div className="flex-1">
+                                    <label className="text-[10px] font-black uppercase tracking-widest block mb-1" style={{ color: MUTED }}>Receive (Est.)</label>
+                                    <div className="text-4xl font-black tracking-tighter" style={{ color: MUTED }}>
+                                        {quote && quote.price ? (Number(amount) / quote.price).toLocaleString(undefined, { maximumFractionDigits: 5 }) : '0.00'}
+                                    </div>
+                                </div>
+                                <div className="border rounded-xl px-4 py-2 flex items-center gap-3" style={{ borderColor: BORDER, background: BG }}>
+                                    <select 
+                                        className="bg-transparent font-black outline-none border-none text-sm"
+                                        style={{ color: INK }}
+                                        value={toAssetSymbol}
+                                        onChange={(e) => setToAssetSymbol(e.target.value)}
+                                    >
+                                        <option value="ETH">ETH</option>
+                                        <option value="USDC">USDC</option>
+                                        <option value="WLD">WLD</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button 
+                            onClick={handleExecute}
+                            disabled={!amount || loading}
+                            className="w-full p-4 rounded-xl font-black text-xs uppercase tracking-[0.25em] active:scale-[0.99] transition-all flex items-center justify-center gap-3 disabled:opacity-40"
+                            style={{ background: INK, color: '#FFF' }}
+                        >
+                            {loading ? <Loader2 className="animate-spin" size={16} /> : <CreditCard size={16} />}
+                            {loading ? 'Verifying Gateway…' : 'Continue with Card'}
+                        </button>
+                      </div>
+                ) : (
+                    <div className="space-y-6">
+                        {/* ── BRIDGE CHAIN SELECTION ── */}
+                        {mode === 'bridge' && (
+                            <div className="flex items-center gap-4 relative z-20">
+                                <NetworkSelectorDropdown chain={sourceChain} setChain={setSourceChain} label="Source" disabled />
+                                <div className="mt-5 px-1"><ArrowRight size={14} style={{ color: MUTED }} /></div>
+                                <NetworkSelectorDropdown chain={targetChain} setChain={setTargetChain} label="Destination" />
+                            </div>
+                        )}
+
+                        {/* ── FROM INPUT ── */}
+                        <div className="border rounded-2xl p-6 relative overflow-hidden" style={{ borderColor: BORDER, background: CARD }}>
+                            <div className="flex justify-between items-end mb-4">
+                                <div className="flex-1">
+                                    <label className="text-[10px] font-black uppercase tracking-widest block mb-1" style={{ color: MUTED }}>{mode === 'send' ? 'Amount' : 'Selling'}</label>
+                                    <input 
+                                        type="number" 
+                                        placeholder="0.00"
+                                        value={amount}
+                                        onChange={(e) => setAmount(e.target.value)}
+                                        className="w-full bg-transparent border-none outline-none text-4xl font-black tracking-tighter placeholder-black/10"
+                                        style={{ color: INK }}
+                                    />
+                                </div>
+                                <div className="relative border rounded-xl" style={{ borderColor: BORDER, background: BG }}>
+                                    <TokenSelector 
+                                        chainId={sourceChain.id}
+                                        address={address}
+                                        selectedToken={balances.find(b => b.symbol === fromAssetSymbol) || { symbol: fromAssetSymbol, name: fromAssetSymbol, address: '', decimals: 18, logoURI: null }}
+                                        onSelect={(t) => {
+                                            setFromAssetSymbol(t.symbol);
+                                            setFromAsset(t);
+                                        }}
+                                        className="min-w-[120px]"
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex justify-between text-[10px] font-black tracking-tight uppercase">
+                                <span style={{ color: MUTED }}>Approx ${safeToLocaleString(parseFloat(amount || '0') * (balances.find(b => b.symbol === fromAssetSymbol)?.usdPrice || 0), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                <button 
+                                    onClick={() => {
+                                        const asset = balances.find(b => b.symbol === fromAssetSymbol);
+                                        if (asset) setAmount(asset.balanceFormatted || '0');
+                                    }}
+                                    className="hover:text-black cursor-pointer"
+                                    style={{ color: MUTED }}
+                                >
+                                    Balance: MAX
+                                </button>
+                            </div>
+                        </div>
+
+                        {mode !== 'send' && (
+                            <div className="relative h-1">
+                                <div className="absolute left-1/2 -top-4 -translate-x-1/2 z-10 w-8 h-8 border rounded-full flex items-center justify-center cursor-pointer hover:bg-black/5" style={{ borderColor: BORDER, background: CARD, color: MUTED }}>
+                                    <Repeat size={12} />
+                                </div>
+                            </div>
+                        )}
+
+                        {mode === 'send' ? (
+                            <div>
+                                <label className="text-[10px] font-black uppercase tracking-widest block mb-2 px-1" style={{ color: MUTED }}>Recipient</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="0x..."
+                                    value={recipient}
+                                    onChange={(e) => setRecipient(e.target.value)}
+                                    className={inputClass}
+                                />
+                            </div>
+                        ) : (
+                            <div className="border rounded-2xl p-6" style={{ borderColor: BORDER, background: CARD }}>
+                                <div className="flex justify-between items-end">
+                                    <div className="flex-1">
+                                        <label className="text-[10px] font-black uppercase tracking-widest block mb-1" style={{ color: MUTED }}>Receiving (Est.)</label>
+                                        <div className="text-4xl font-black tracking-tighter" style={{ color: MUTED }}>
+                                            {quote && quote.estimate ? (Number(quote.estimate.toAmount) / (10 ** (quote.estimate.toToken?.decimals || 6))).toFixed(4) : '0.00'}
+                                        </div>
+                                    </div>
+                                    <div className="border rounded-xl flex items-center gap-3 cursor-pointer" style={{ borderColor: BORDER, background: BG }}>
+                                        <TokenSelector 
+                                            chainId={mode === 'swap' ? sourceChain.id : targetChain.id}
+                                            address={address}
+                                            selectedToken={toAsset || { symbol: toAssetSymbol, name: toAssetSymbol, address: '', decimals: 18 }}
+                                            onSelect={(t) => {
+                                                setToAsset(t);
+                                                setToAssetSymbol(t.symbol);
+                                            }}
+                                            className="min-w-[120px]"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {errorMsg && (
+                            <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-600 text-center font-bold">
+                                {errorMsg}
+                            </div>
+                        )}
+
+                        {quote && mode !== 'send' && (
+                            <div className="space-y-2.5 rounded-xl p-4 border" style={{ borderColor: BORDER, background: CARD }}>
+                                <div className="flex justify-between text-[10px] font-black uppercase tracking-widest" style={{ color: MUTED }}>
+                                    <span>Route Execution</span>
+                                    <span>Li.Fi Aggregation <Zap size={10} className="inline ml-1 text-black" /></span>
+                                </div>
+                            </div>
+                        )}
+
+                        <button 
+                            onClick={handleExecute}
+                            disabled={loading || !amount || (mode !== 'send' && !quote)}
+                            className="w-full p-4 rounded-xl font-black text-xs uppercase tracking-[0.25em] active:scale-[0.99] transition-all flex items-center justify-center gap-3 disabled:opacity-30 disabled:cursor-not-allowed"
+                            style={{ background: INK, color: '#FFF' }}
+                        >
+                            {loading ? (
+                                <>
+                                    <Loader2 className="animate-spin" size={16} />
+                                    {orchestratorStatus === 'quoting' ? 'Quoting...' : 
+                                     orchestratorStatus === 'approving' ? 'Approving...' : 
+                                     orchestratorStatus === 'signing' ? 'Awaiting Signature...' : 
+                                     orchestratorStatus === 'broadcasting' ? 'Broadcasting...' : 
+                                     'Processing...'}
+                                </>
+                            ) : (
+                                <>
+                                    Initiate {mode}
+                                    <ArrowRight size={16} />
+                                </>
+                            )}
+                        </button>
+
+                    </div>
+                )}
+              </div>
+              </div>
+            </InstitutionalErrorBoundary>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+}
