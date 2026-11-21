@@ -1,0 +1,271 @@
+/**
+ * scripts/aztec/e2e-escrow-testnet.mts
+ *
+ * End-to-end run of keyed PrivateEscrow and PaymentStream instances on Aztec
+ * testnet, with throwaway accounts paid by the sponsored FPC and a fresh test
+ * token, so it needs no secrets and anyone can reproduce it:
+ *
+ *   1. deploy two accounts (sender, recipient) and a test Token; mint and
+ *      shield into the sender's private balance;
+ *   2. deploy each contract with public keys derived from a fresh secret
+ *      (lib/aztec/keyed-deploy.ts), publishing the class if the node does not
+ *      have it; both parties register the instance with that secret;
+ *   3. escrow 1: deposit with an authwit, claim by the recipient; a second
+ *      claim and a refund of it are refused;
+ *   4. escrow 2: deposit with a short deadline; a refund before it and a
+ *      claim after it are refused; the sender is refunded after it;
+ *   5. stream: create, a withdrawal beyond accrual is refused, a withdrawal
+ *      within accrual is paid;
+ *   6. every balance is checked after every step.
+ *
+ *   node --conditions=browser --import tsx --import ./scripts/aztec/register.mjs scripts/aztec/e2e-escrow-testnet.mts
+ *
+ * Prints every transaction hash and writes them to e2e-escrow-receipt.json
+ * (and the GitHub step summary). The escrow secret and the claim secret are
+ * never printed. Test network only.
+ */
+import fs from 'node:fs';
+import { createAztecNodeClient, waitForTx } from '@aztec-labs/aztec.js/node';
+import { Fr, Fq } from '@aztec-labs/aztec.js/fields';
+import { AztecAddress } from '@aztec-labs/aztec.js/addresses';
+import { Contract, DeployMethod, getContractInstanceFromInstantiationParams, NO_WAIT } from '@aztec-labs/aztec.js/contracts';
+import { SponsoredFeePaymentMethod } from '@aztec-labs/aztec.js/fee';
+import { NO_FROM } from '@aztec-labs/aztec.js/account';
+import { SponsoredFPCContract } from '@aztec-labs/noir-contracts.js/SponsoredFPC';
+import { TokenContract } from '@aztec-labs/noir-contracts.js/Token';
+import { openTmpStore } from '@aztec-labs/kv-store/deprecated/indexeddb';
+import { EmbeddedWallet } from '@aztec-labs/wallets/embedded';
+import { KEYED_ARTIFACT_PATHS, computeKeyedInstance, loadKeyedArtifact } from '../../lib/aztec/keyed-deploy.ts';
+
+const registry = JSON.parse(fs.readFileSync('deployments/aztec-testnet.json', 'utf8'));
+const NODE_URL = process.env.AZTEC_NODE_URL || registry.network.nodeUrl;
+const RPC = { maxBatchSize: 3 };
+const DOM_SEP__CLAIM_SECRET = 718293041; // contracts/aztec/escrow/src/main.nr
+const t0 = Date.now();
+const log = (...a: unknown[]) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s]`, ...a);
+
+const receipt: { network: string; startedAt: string; steps: Array<{ step: string; txHash?: string; block?: number; detail?: string }>; checks: Array<{ check: string; ok: boolean; detail?: string }> } = {
+  network: NODE_URL,
+  startedAt: new Date().toISOString(),
+  steps: [],
+  checks: [],
+};
+const check = (label: string, ok: boolean, detail = '') => {
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}${detail ? `  (${detail})` : ''}`);
+  receipt.checks.push({ check: label, ok, detail: detail || undefined });
+};
+const unwrap = (r: any): bigint => {
+  const v = r && typeof r === 'object' && 'result' in r ? r.result : r;
+  return BigInt(typeof v === 'object' && v && 'toBigInt' in v ? v.toBigInt() : v);
+};
+
+async function poseidon2WithSeparator(inputs: Fr[], sep: number): Promise<Fr> {
+  const mods: string[] = ['@aztec-labs/foundation/crypto/poseidon', '@aztec-labs/foundation/crypto'];
+  for (const m of mods) {
+    try {
+      const mod: any = await import(m);
+      if (mod.poseidon2HashWithSeparator) return await mod.poseidon2HashWithSeparator(inputs, sep);
+    } catch {
+      /* try the next export path */
+    }
+  }
+  throw new Error('poseidon2HashWithSeparator not found in @aztec-labs/foundation');
+}
+
+const node = createAztecNodeClient(NODE_URL, RPC);
+const fpc = await getContractInstanceFromInstantiationParams(SponsoredFPCContract.artifact, { salt: new Fr(0) });
+const fee = { paymentMethod: new SponsoredFeePaymentMethod(fpc.address) };
+
+async function newWallet() {
+  const w = await EmbeddedWallet.create(NODE_URL, {
+    ephemeral: true,
+    nodeClientOptions: RPC,
+    pxe: { store: await openTmpStore(true) },
+    walletDb: { store: await openTmpStore(true) },
+  });
+  await w.registerContract(fpc, SponsoredFPCContract.artifact);
+  return w;
+}
+
+async function newAccount(w: any, alias: string) {
+  const m = await w.createSchnorrAccount(Fr.random(), Fr.random(), Fq.random(), alias);
+  const sent = await (await m.getDeployMethod()).send({ from: NO_FROM, fee, wait: NO_WAIT });
+  const r = await waitForTx(node, sent.txHash, { timeout: 900, interval: 2 });
+  receipt.steps.push({ step: `deploy account ${alias}`, txHash: sent.txHash.toString(), block: Number(r.blockNumber) });
+  log(`${alias} deployed ${m.address}`);
+  return m.address as AztecAddress;
+}
+
+async function sendAndWait(step: string, interaction: any, opts: Record<string, unknown>) {
+  const sent = await interaction.send({ fee, wait: NO_WAIT, ...opts });
+  const r = await waitForTx(node, sent.txHash, { timeout: 900, interval: 2 });
+  receipt.steps.push({ step, txHash: sent.txHash.toString(), block: Number(r.blockNumber) });
+  log(step, sent.txHash.toString(), 'block', Number(r.blockNumber));
+  return sent.txHash.toString();
+}
+
+const nowSec = () => Math.floor(Date.now() / 1000);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Expects a simulation to be refused; returns the reason. */
+async function refused(interaction: any, opts: Record<string, unknown>): Promise<string> {
+  try {
+    await interaction.simulate(opts);
+    return 'accepted';
+  } catch (e) {
+    return (e as Error).message.replace(/\s+/g, ' ').slice(0, 160);
+  }
+}
+
+async function main() {
+  const info = await node.getNodeInfo();
+  log('node', info.nodeVersion, 'L1', info.l1ChainId, 'rollup', info.rollupVersion);
+
+  const wa = await newWallet();
+  const wb = await newWallet();
+  const sender = await newAccount(wa, 'sender');
+  const recipient = await newAccount(wb, 'recipient');
+  await wb.registerSender(sender, 'sender');
+
+  // A fresh test token, administered by the throwaway sender.
+  const tokenDeploy = await TokenContract.deploy(wa, sender, 'HL e2e test token', 'HLT', 6).send({ from: sender, fee, wait: { timeout: 900 } });
+  const tokenAddr: AztecAddress = (tokenDeploy as any).instance?.address ?? (tokenDeploy as any).contract?.address;
+  receipt.steps.push({ step: 'deploy test token', detail: tokenAddr.toString() });
+  log('token', tokenAddr.toString());
+  await wb.registerContract((await node.getContract(tokenAddr))!, TokenContract.artifact);
+  const tokA = TokenContract.at(tokenAddr, wa);
+  const tokB = TokenContract.at(tokenAddr, wb);
+  const balA = async () => unwrap(await tokA.methods.balance_of_private(sender).simulate({ from: sender }));
+  const balB = async () => unwrap(await tokB.methods.balance_of_private(recipient).simulate({ from: recipient }));
+
+  await sendAndWait('mint to sender (public)', tokA.methods.mint_to_public(sender, 100_000_000n), { from: sender });
+  await sendAndWait('shield into sender private balance', tokA.methods.transfer_to_private(sender, 90_000_000n), { from: sender });
+  check('sender private balance is 90', (await balA()) === 90_000_000n);
+
+  /** Keyed universal deployment; publishes the class first if the node does not have it. */
+  async function deployKeyed(c: 'escrow' | 'streams', label: string) {
+    const artifact = loadKeyedArtifact(JSON.parse(fs.readFileSync(KEYED_ARTIFACT_PATHS[c], 'utf8')));
+    const secretKey = Fr.random();
+    const salt = Fr.random();
+    const expected = await computeKeyedInstance(artifact, { secretKey, salt, token: tokenAddr });
+    const classId = expected.instance.currentContractClassId;
+    const published = !!(await node.getContractClass(classId));
+    log(label, 'class', classId.toString(), published ? 'already published' : 'publishing with the deployment');
+    const deployment = DeployMethod.create(
+      wa,
+      { artifact, args: [tokenAddr], postDeployCtor: (instance: any, w: any) => Contract.at(instance.address, artifact, w) },
+      { salt, publicKeys: expected.publicKeys, universalDeploy: true },
+    );
+    const res: any = await deployment.send({ from: sender, fee, skipClassPublication: published, wait: { timeout: 900 } } as any);
+    const addr = AztecAddress.fromStringUnsafe((res.instance?.address ?? res.contract?.address).toString());
+    receipt.steps.push({
+      step: `deploy keyed ${label}${published ? '' : ' (and publish its class)'}`,
+      txHash: res.receipt?.txHash?.toString(),
+      block: res.receipt?.blockNumber ? Number(res.receipt.blockNumber) : undefined,
+      detail: `${addr.toString()} class ${classId.toString()}`,
+    });
+    check(`${label}: address is the keyed instance computed locally`, addr.equals(expected.instance.address), addr.toString());
+    const onchain = await node.getContract(addr);
+    check(`${label}: the node returns its own public keys`, !!onchain && onchain.publicKeys.equals(expected.publicKeys));
+    check(`${label}: the node runs the committed class`, !!onchain && onchain.currentContractClassId.equals(classId));
+    // Both parties register the instance with its secret, so their PXEs can
+    // find and spend its token notes.
+    await wa.registerContract(expected.instance, artifact, secretKey);
+    await wb.registerContract(expected.instance, artifact, secretKey);
+    return { addr, a: Contract.at(addr, artifact, wa) as any, b: Contract.at(addr, artifact, wb) as any };
+  }
+
+  async function authwitFor(caller: AztecAddress, amount: bigint) {
+    const nonce = Fr.random();
+    const pull = tokA.methods.transfer_in_private(sender, caller, amount, nonce);
+    let witness: any;
+    try {
+      witness = await (wa as any).createAuthWit(sender, { caller, call: await pull.getFunctionCall() });
+    } catch {
+      witness = await (wa as any).createAuthWit(sender, { caller, action: pull });
+    }
+    return { nonce, witness };
+  }
+
+  // ── PrivateEscrow: one claim before the deadline, one refund after it ──
+  const escrow = await deployKeyed('escrow', 'PrivateEscrow');
+
+  const claimSecret = Fr.random();
+  const claimHash = await poseidon2WithSeparator([claimSecret], DOM_SEP__CLAIM_SECRET);
+  const idClaim = Fr.random();
+  const w1 = await authwitFor(escrow.addr, 25_000_000n);
+  await sendAndWait('escrow 1: deposit 25 (deadline +2 h)',
+    escrow.a.methods.deposit(recipient, 25_000_000n, BigInt(nowSec() + 7200), claimHash, idClaim, w1.nonce),
+    { from: sender, authWitnesses: [w1.witness] });
+
+  const idRefund = Fr.random();
+  const refundDeadline = nowSec() + 420;
+  const w2 = await authwitFor(escrow.addr, 10_000_000n);
+  await sendAndWait('escrow 2: deposit 10 (deadline +7 min)',
+    escrow.a.methods.deposit(recipient, 10_000_000n, BigInt(refundDeadline), await poseidon2WithSeparator([Fr.random()], DOM_SEP__CLAIM_SECRET), idRefund, w2.nonce),
+    { from: sender, authWitnesses: [w2.witness] });
+  check('sender private balance is 55 after both deposits', (await balA()) === 55_000_000n);
+  const early = await refused(escrow.a.methods.refund(idRefund), { from: sender, additionalScopes: [escrow.addr] });
+  check('escrow 2: refund before the deadline is refused', early !== 'accepted', early);
+
+  await sendAndWait('escrow 1: claim by the recipient', escrow.b.methods.claim(idClaim, claimSecret), { from: recipient, additionalScopes: [escrow.addr] });
+  check('recipient private balance is 25 after the claim', (await balB()) === 25_000_000n);
+  const again = await refused(escrow.b.methods.claim(idClaim, claimSecret), { from: recipient, additionalScopes: [escrow.addr] });
+  check('escrow 1: a second claim is refused', again !== 'accepted', again);
+  const lateRefund = await refused(escrow.a.methods.refund(idClaim), { from: sender, additionalScopes: [escrow.addr] });
+  check('escrow 1: the sender cannot refund a claimed escrow', lateRefund !== 'accepted', lateRefund);
+
+  // ── PaymentStream: accrual-bounded withdrawal ──
+  const stream = await deployKeyed('streams', 'PaymentStream');
+  const streamSalt = Fr.random();
+  const start = BigInt(nowSec() - 900);
+  const w3 = await authwitFor(stream.addr, 20_000_000n);
+  await sendAndWait('stream: create 20 at 10,000 units/s, started 15 min ago',
+    stream.a.methods.create_stream(recipient, 20_000_000n, 10_000n, start, streamSalt, w3.nonce),
+    { from: sender, authWitnesses: [w3.witness] });
+  check('sender private balance is 35 after the stream', (await balA()) === 35_000_000n);
+  const tooMuch = await refused(stream.b.methods.withdraw(streamSalt, 20_000_000n), { from: recipient, additionalScopes: [stream.addr] });
+  check('stream: withdrawing the whole total early is refused', tooMuch !== 'accepted', tooMuch);
+  await sendAndWait('stream: withdraw 5 (within accrual)', stream.b.methods.withdraw(streamSalt, 5_000_000n), { from: recipient, additionalScopes: [stream.addr] });
+  check('recipient private balance is 30 after the withdrawal', (await balB()) === 30_000_000n);
+
+  // ── Escrow 2: refund once the deadline has passed ──
+  const waitS = refundDeadline + 150 - nowSec();
+  if (waitS > 0) {
+    log(`waiting ${waitS}s for escrow 2's deadline to pass`);
+    await sleep(waitS * 1000);
+  }
+  const lateClaim = await refused(escrow.b.methods.claim(idRefund, Fr.random()), { from: recipient, additionalScopes: [escrow.addr] });
+  check('escrow 2: a claim after the deadline is refused', lateClaim !== 'accepted', lateClaim);
+  await sendAndWait('escrow 2: refund to the sender after the deadline', escrow.a.methods.refund(idRefund), { from: sender, additionalScopes: [escrow.addr] });
+  check('sender private balance is 45 after the refund', (await balA()) === 45_000_000n);
+
+  await wa.stop();
+  await wb.stop();
+}
+
+let failed = false;
+try {
+  await main();
+} catch (e) {
+  failed = true;
+  console.error('ERROR', e instanceof Error ? e.stack : e);
+  receipt.checks.push({ check: 'run completed', ok: false, detail: e instanceof Error ? e.message.slice(0, 300) : String(e) });
+}
+const ok = !failed && receipt.checks.every((c) => c.ok);
+fs.writeFileSync('e2e-escrow-receipt.json', JSON.stringify({ ...receipt, ok }, null, 2) + '\n');
+const summary = process.env.GITHUB_STEP_SUMMARY;
+if (summary) {
+  const lines = [
+    '### Keyed PrivateEscrow on Aztec testnet',
+    '',
+    '| Step | Transaction | Block |',
+    '| --- | --- | --- |',
+    ...receipt.steps.map((s) => `| ${s.step} | ${s.txHash ? `\`${s.txHash}\`` : s.detail ?? ''} | ${s.block ?? ''} |`),
+    '',
+    ...receipt.checks.map((c) => `- ${c.ok ? 'PASS' : 'FAIL'} ${c.check}${c.detail ? ` (${c.detail})` : ''}`),
+  ];
+  fs.appendFileSync(summary, lines.join('\n') + '\n');
+}
+console.log(ok ? '\nALL CHECKS PASSED' : '\nSOME CHECKS FAILED');
+process.exit(ok ? 0 : 1);

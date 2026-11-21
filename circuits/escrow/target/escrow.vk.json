@@ -1,0 +1,29 @@
+{
+  "circuit": "escrow",
+  "status": "experimental",
+  "statusNote": "Not for production. Known soundness issues are listed in docs/zk/MASTER_PROMPT.md (ZK-01 to ZK-07).",
+  "provingSystem": "UltraHonk",
+  "curve": "BN254",
+  "toolchain": {
+    "nargo": "1.0.0+275d3ab1a5c916c6ea73e8d6b943f685f574500c",
+    "bbJs": "5.3.0"
+  },
+  "acirArtifact": "target/zk_escrow.json",
+  "verificationKey": "target/vk",
+  "vkBytes": 3680,
+  "vkSha256": "0x4e3cc4c8ce03607dcb2b98bd50c0d31084300634ee8f70f4674919682eb915c2",
+  "vkHeader": {
+    "logCircuitSize": 15,
+    "numPublicInputs": 12,
+    "publicInputsOffset": 5,
+    "note": "First three fields of target/vk. numPublicInputs includes the fields Barretenberg appends to the circuit's own public inputs."
+  },
+  "circuitPublicInputs": [
+    "escrow_commitment",
+    "nullifier",
+    "deadline",
+    "current_timestamp"
+  ],
+  "onChainRegistry": null,
+  "onChainRegistryNote": "No VK registry is deployed on any network."
+}
