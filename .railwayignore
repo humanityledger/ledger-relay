@@ -1,0 +1,39 @@
+node_modules/
+.next/
+.git/
+.env*
+.gemini/
+build.log
+tsconfig.tsbuildinfo
+tsc_output.txt
+tmp_diff.txt
+
+# Smart Contracts & Build Cache
+/artifacts/
+/cache/
+/contracts/
+/ignition/
+/typechain-types/
+/.openzeppelin/
+/forge/
+/subgraph/
+
+# Non-runtime files
+/docs/
+/examples/
+/test/
+/k8s/
+/.clerk/
+/out/
+/scratch/
+# Backup & helper scripts
+**/*.bat
+**/*.exe
+**/*.py
+**/*.patch
+
+# Do NOT ignore important configuration scripts that PM2/Docker needs
+!server.js
+!next.config.js
+!ecosystem.config.json
+!clean.js
