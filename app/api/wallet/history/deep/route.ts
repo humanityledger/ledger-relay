@@ -1,0 +1,124 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { historySyncService } from '@/lib/wallet/history-sync';
+import { prisma } from '@/lib/prisma';
+
+/**
+ * GET /api/wallet/history/deep
+ * 1. Syncs history if needed (first time or stale)
+ * 2. Returns persisted transactions from database
+ */
+export async function GET(req: NextRequest) {
+  try {
+    const { getSession } = await import('@/lib/session');
+    const session = await getSession();
+    if (!session?.userId) {
+        return NextResponse.json({ error: 'Unauthorized: Authentication required.' }, { status: 401 });
+    }
+    const address = session.userId.toLowerCase();
+
+    // Find the internal user ID associated with this wallet address
+    // [ZK-ISOLATION] Transactions are now indexed by fromAddress/toAddress — no userId linkage
+    const user = await prisma.user.findUnique({ where: { walletAddress: address } });
+
+    // CHECK SYNC STATUS
+    // [ZK] Count using address-based lookup — no authUserId needed
+    const txCount = await prisma.transaction.count({ 
+      where: { OR: [{ fromAddress: address }, { toAddress: address }] } 
+    });
+    
+    if (txCount === 0 && user?.id) {
+        // First time sync (can be slow, maybe trigger background job in future)
+        await historySyncService.syncHistoricalTransactions(user.id, address);
+    }
+
+    // RETURN PERSISTED DATA — by address, not userId
+    const historyRaw = await prisma.transaction.findMany({
+        where: { OR: [{ fromAddress: address }, { toAddress: address }] },
+        orderBy: { 
+            timestamp: 'desc' 
+        },
+        take: 100 // Limit for performance
+    });
+
+    // Serialize BigInt for JSON
+    const history = historyRaw.map(tx => ({
+        ...tx,
+        gasUsed: tx.gasUsed?.toString() || null,
+        blockNumber: tx.blockNumber?.toString() || null,
+        value: (tx.value || '0').toString(),
+    }));
+
+    //  [LEGENDARY AUTOMATIC RECOVERY]: If DB is empty, trigger the blockchain fallback anyway
+    if (history.length === 0) {
+        console.warn(`[HistoryFallback] DB returned 0 items for ${address}. Triggering automatic blockchain scan...`);
+        return await triggerBlockchainFallback(req, address);
+    }
+
+    return NextResponse.json({ history });
+
+  } catch (error: any) {
+    console.error('History API Error:', error);
+    const { searchParams } = new URL(req.url);
+    const address = searchParams.get('address');
+    return await triggerBlockchainFallback(req, address, error);
+  }
+}
+
+/**
+ * [LEGENDARY HELPER]: Fetches live history from multiple chains
+ */
+async function triggerBlockchainFallback(req: NextRequest, address: string | null, error?: any) {
+    try {
+        if (!address) return NextResponse.json({ error: 'Address required' }, { status: 400 });
+
+        console.warn(`[HistoryFallback] Recovery initiated for ${address}. Reason: ${error ? (error.code || error.message) : 'Empty DB Results'}`);
+        const { portfolioService } = await import('@/lib/blockchain/PortfolioService');
+        
+        const CHAINS_TO_SCAN = [1, 8453, 137, 42161, 10, 480]; // Mainnet, Base, Polygon, Arb, Op, WorldChain
+        
+        const historyResults = await Promise.all(
+            CHAINS_TO_SCAN.map(async (chainId) => {
+                try {
+                    const chainHistory = await portfolioService.getAssetHistory(chainId, address);
+                    console.log(`[HistoryFallback] Chain ${chainId}: Found ${chainHistory?.length || 0} items`);
+                    return chainHistory || [];
+                } catch (e) {
+                    console.error(`[HistoryFallback] Chain ${chainId} failed:`, e);
+                    return [];
+                }
+            })
+        );
+        
+        //  [Elite MERGE]: Use the new service-level merger
+        const history = portfolioService.mergeHistoryStreams(historyResults).slice(0, 100);
+
+        // Normalize for frontend LegendaryActivityFeed.tsx
+        const normalizedHistory = history.map((tx: any) => {
+            const isOut = tx.direction === 'OUT' || tx.from?.toLowerCase() === address?.toLowerCase();
+            return {
+                hash: tx.hash,
+                from: tx.from,
+                to: tx.to,
+                value: parseFloat(tx.value || '0'),
+                asset: tx.asset || 'ETH',
+                type: tx.category === 'erc20' ? (isOut ? 'SEND' : 'RECEIVE') : (isOut ? 'SEND' : 'RECEIVE'), // Simple mapping
+                status: 'CONFIRMED',
+                chainId: tx.chainId || 1,
+                timestamp: tx.timestamp || new Date().toISOString()
+            };
+        });
+
+        console.log(`[HistoryFallback] Recovery complete. Total normalized items: ${normalizedHistory.length}`);
+
+        return NextResponse.json({ 
+            history: normalizedHistory, 
+            status: 'FALLBACK_LIVE',
+            isFallback: true,
+            warning: 'Results fetched directly from blockchain.'
+        });
+    } catch (fallbackError) {
+        console.error('[HistoryFallback] Fatal recovery failure:', fallbackError);
+        return NextResponse.json({ error: 'Failed to fetch history', history: [] });
+    }
+}
+

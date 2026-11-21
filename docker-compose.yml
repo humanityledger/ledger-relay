@@ -1,0 +1,23 @@
+services:
+  ethereum:
+    image: ghcr.io/foundry-rs/foundry:nightly
+    platform: linux/amd64
+    user: "0:0"
+    entrypoint: ["anvil"]
+    command: ["--host", "0.0.0.0", "--chain-id", "31337"]
+    ports:
+      - "8545:8545"
+
+  aztec-sandbox:
+    image: aztecprotocol/aztec-sandbox:latest
+    ports:
+      - "18080:8080" # PXE  (host 18080 → container 8080)
+      - "18081:8081" # Node (host 18081 → container 8081)
+    environment:
+      - ETHEREUM_HOST=http://ethereum:8545
+      - PORT=8080
+      - HOST=0.0.0.0
+      - LOG_LEVEL=debug
+      - AZTEC_PORT=8080
+    depends_on:
+      - ethereum
