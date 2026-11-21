@@ -1,0 +1,308 @@
+// ============================================================================
+// DATABASE SCHEMA: Human-Fi Engine
+// ============================================================================
+// Purpose: Off-chain governance, World ID verification, and royalty tracking
+// Architecture: Sybil-resistant voting with Merkle-based reward distribution
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// MARKET PROPOSAL GOVERNANCE
+// ============================================================================
+
+model MarketProposal {
+  id                String   @id @default(cuid())
+  
+  // Proposal Details
+  question          String   // "Will Bitcoin reach $100k by EOY 2026?"
+  description       String   @db.Text
+  outcomes          Json     // ["Yes", "No"] or multiple outcomes
+  resolutionCriteria String  @db.Text
+  category          String   // "Crypto", "Politics", "Sports", etc.
+  
+  // Creator Information
+  creatorAddress    String   // Ethereum address
+  creatorNullifier  String   @unique // World ID nullifier_hash (privacy-preserving)
+  
+  // Voting Metrics
+  votesFor          Int      @default(0)
+  votesAgainst      Int      @default(0)
+  votingThreshold   Int      @default(100) // Minimum votes needed
+  
+  // Status & Lifecycle
+  status            ProposalStatus @default(PENDING)
+  createdAt         DateTime @default(now())
+  votingEndsAt      DateTime // Voting deadline
+  approvedAt        DateTime?
+  marketCreatedAt   DateTime?
+  
+  // Polymarket Integration
+  polymarketId      String?  @unique // Once created on Polymarket
+  conditionId       String?  // CTF condition ID
+  
+  // Royalty Tracking
+  totalFeesAccrued  Decimal  @default(0) @db.Decimal(18, 6) // In USDC
+  lastRoyaltyUpdate DateTime @default(now())
+  
+  // Relations
+  votes             ProposalVote[]
+  royalties         RoyaltyAccrual[]
+  
+  @@index([status, votingEndsAt])
+  @@index([creatorAddress])
+  @@index([createdAt])
+}
+
+enum ProposalStatus {
+  PENDING       // Just submitted, awaiting votes
+  VOTING        // Active voting period
+  APPROVED      // Passed threshold, ready for creation
+  REJECTED      // Failed to meet threshold
+  CREATED       // Market live on Polymarket
+  RESOLVED      // Market outcome determined
+  CANCELLED     // Proposal withdrawn
+}
+
+// ============================================================================
+// SYBIL-RESISTANT VOTING
+// ============================================================================
+
+model ProposalVote {
+  id              String   @id @default(cuid())
+  
+  // Proposal Reference
+  proposalId      String
+  proposal        MarketProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  
+  // Voter Identity (Privacy-Preserving)
+  nullifierHash   String   // World ID nullifier - prevents double voting
+  voterAddress    String?  // Optional: if user wants to link wallet
+  
+  // Vote Details
+  vote            VoteChoice
+  votedAt         DateTime @default(now())
+  
+  // World ID Verification Proof
+  merkleRoot      String   // World ID merkle root at time of vote
+  proof           Json     // ZK proof data
+  verificationLevel String @default("orb") // "orb" or "device"
+  
+  // Metadata
+  ipfsHash        String?  // Optional: store full vote data on IPFS
+  
+  @@unique([proposalId, nullifierHash]) // Prevent double voting
+  @@index([proposalId, votedAt])
+  @@index([nullifierHash])
+}
+
+enum VoteChoice {
+  FOR
+  AGAINST
+  ABSTAIN
+}
+
+// ============================================================================
+// ROYALTY & REWARD SYSTEM
+// ============================================================================
+
+model RoyaltyAccrual {
+  id              String   @id @default(cuid())
+  
+  // Market Reference
+  proposalId      String
+  proposal        MarketProposal @relation(fields: [proposalId], references: [id])
+  
+  // Fee Details
+  amount          Decimal  @db.Decimal(18, 6) // USDC amount
+  feeType         FeeType
+  
+  // Transaction Context
+  txHash          String   @unique
+  blockNumber     BigInt
+  timestamp       DateTime @default(now())
+  
+  // Merkle Distribution
+  merkleTreeId    String?  // Links to weekly distribution
+  claimed         Boolean  @default(false)
+  claimedAt       DateTime?
+  claimTxHash     String?
+  
+  @@index([proposalId, timestamp])
+  @@index([merkleTreeId, claimed])
+}
+
+enum FeeType {
+  TRADING_FEE    // % of trading volume
+  CREATION_FEE   // One-time market creation fee
+  RESOLUTION_FEE // Fee for resolving market
+}
+
+// ============================================================================
+// MERKLE TREE DISTRIBUTIONS (Weekly Snapshots)
+// ============================================================================
+
+model MerkleDistribution {
+  id              String   @id @default(cuid())
+  
+  // Distribution Period
+  periodStart     DateTime
+  periodEnd       DateTime
+  
+  // Merkle Tree Data
+  merkleRoot      String   @unique
+  totalAmount     Decimal  @db.Decimal(18, 6) // Total USDC distributed
+  
+  // IPFS Storage
+  ipfsHash        String   // Full tree stored on IPFS
+  treeData        Json     // Compressed tree for quick lookups
+  
+  // Claim Statistics
+  totalClaims     Int      @default(0)
+  totalClaimed    Decimal  @default(0) @db.Decimal(18, 6)
+  
+  // Status
+  status          DistributionStatus @default(PENDING)
+  publishedAt     DateTime?
+  expiresAt       DateTime // Claims expire after 90 days
+  
+  // Relations
+  claims          RewardClaim[]
+  
+  @@index([periodEnd, status])
+}
+
+enum DistributionStatus {
+  PENDING    // Being calculated
+  PUBLISHED  // Live, users can claim
+  EXPIRED    // Claim period ended
+  ARCHIVED   // Historical record
+}
+
+// ============================================================================
+// REWARD CLAIMS (Pull-Based)
+// ============================================================================
+
+model RewardClaim {
+  id                String   @id @default(cuid())
+  
+  // Distribution Reference
+  merkleTreeId      String
+  distribution      MerkleDistribution @relation(fields: [merkleTreeId], references: [id])
+  
+  // Claimer
+  claimerAddress    String
+  
+  // Claim Details
+  amount            Decimal  @db.Decimal(18, 6)
+  merkleProof       Json     // Array of hashes for verification
+  leafIndex         Int
+  
+  // Transaction
+  claimedAt         DateTime @default(now())
+  txHash            String   @unique
+  gasUsed           BigInt
+  
+  @@unique([merkleTreeId, claimerAddress]) // One claim per distribution
+  @@index([claimerAddress, claimedAt])
+}
+
+// ============================================================================
+// WLD-TO-BET ZAP TRACKING
+// ============================================================================
+
+model ZapTransaction {
+  id              String   @id @default(cuid())
+  
+  // User
+  userAddress     String
+  
+  // Input
+  wldAmount       Decimal  @db.Decimal(18, 6)
+  wldPriceUSD     Decimal  @db.Decimal(18, 6)
+  
+  // Swap Details
+  usdcReceived    Decimal  @db.Decimal(18, 6)
+  slippage        Decimal  @db.Decimal(5, 4) // Actual slippage %
+  dexUsed         String   // "Uniswap V3", "1inch", etc.
+  
+  // Outcome Purchase
+  marketId        String
+  outcomeIndex    Int
+  sharesReceived  Decimal  @db.Decimal(18, 6)
+  
+  // Transaction Details
+  txHash          String   @unique
+  blockNumber     BigInt
+  gasUsed         BigInt
+  gasPaidBy       String   // "User" or "Paymaster"
+  
+  // Status
+  status          ZapStatus
+  errorMessage    String?
+  
+  // Timestamps
+  initiatedAt     DateTime @default(now())
+  completedAt     DateTime?
+  
+  @@index([userAddress, initiatedAt])
+  @@index([status])
+}
+
+enum ZapStatus {
+  PENDING      // Transaction submitted
+  SWAPPING     // WLD -> USDC in progress
+  BUYING       // Purchasing outcome shares
+  COMPLETED    // Success
+  FAILED       // Reverted (atomic guarantee)
+  PARTIAL_FAIL // Should never happen (atomicity broken)
+}
+
+// ============================================================================
+// ANALYTICS & METRICS
+// ============================================================================
+
+model UserMetrics {
+  id                    String   @id @default(cuid())
+  
+  userAddress           String   @unique
+  
+  // Engagement
+  proposalsCreated      Int      @default(0)
+  votescast             Int      @default(0)
+  zapsExecuted          Int      @default(0)
+  
+  // Financial
+  totalWLDZapped        Decimal  @default(0) @db.Decimal(18, 6)
+  totalRoyaltiesEarned  Decimal  @default(0) @db.Decimal(18, 6)
+  totalRoyaltiesClaimed Decimal  @default(0) @db.Decimal(18, 6)
+  
+  // Reputation
+  successfulProposals   Int      @default(0)
+  reputationScore       Int      @default(0)
+  
+  // Timestamps
+  firstSeenAt           DateTime @default(now())
+  lastActiveAt          DateTime @default(now())
+  
+  @@index([reputationScore])
+  @@index([lastActiveAt])
+}
+
+// ============================================================================
+// INDEXES FOR PERFORMANCE
+// ============================================================================
+// Key Query Patterns:
+// 1. Active proposals by status + voting deadline
+// 2. User's voting history by nullifier
+// 3. Unclaimed royalties by creator
+// 4. Merkle distributions by period
+// 5. Zap transactions by user + time
+// ============================================================================
